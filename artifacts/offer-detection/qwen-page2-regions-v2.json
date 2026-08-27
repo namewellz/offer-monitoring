@@ -1,0 +1,72 @@
+{
+  "model": "qwen2.5vl:3b",
+  "duration_ms": 23629,
+  "located": {
+    "regions": [
+      {
+        "id": 1,
+        "x": 32,
+        "y": 48,
+        "width": 76,
+        "height": 90
+      },
+      {
+        "id": 2,
+        "x": 32,
+        "y": 152,
+        "width": 76,
+        "height": 90
+      },
+      {
+        "id": 3,
+        "x": 32,
+        "y": 248,
+        "width": 76,
+        "height": 90
+      },
+      {
+        "id": 4,
+        "x": 32,
+        "y": 345,
+        "width": 76,
+        "height": 90
+      },
+      {
+        "id": 5,
+        "x": 32,
+        "y": 441,
+        "width": 76,
+        "height": 90
+      },
+      {
+        "id": 6,
+        "x": 32,
+        "y": 538,
+        "width": 76,
+        "height": 90
+      },
+      {
+        "id": 7,
+        "x": 32,
+        "y": 634,
+        "width": 76,
+        "height": 90
+      },
+      {
+        "id": 8,
+        "x": 32,
+        "y": 731,
+        "width": 76,
+        "height": 90
+      },
+      {
+        "id": 9,
+        "x": 32,
+        "y": 828,
+        "width": 76,
+        "height": 90
+      }
+    ]
+  },
+  "raw_response": "{\n  \"regions\": [\n    {\n      \"id\": 1,\n      \"x\": 32, \"y\": 48, \"width\": 76, \"height\": 90\n    },\n    {\n      \"id\": 2,\n      \"x\": 32, \"y\": 152, \"width\": 76, \"height\": 90\n    },\n    {\n      \"id\": 3,\n      \"x\": 32, \"y\": 248, \"width\": 76, \"height\": 90\n    },\n    {\n      \"id\": 4,\n      \"x\": 32, \"y\": 345, \"width\": 76, \"height\": 90\n    },\n    {\n      \"id\": 5,\n      \"x\": 32, \"y\": 441, \"width\": 76, \"height\": 90\n    },\n    {\n      \"id\": 6,\n      \"x\": 32, \"y\": 538, \"width\": 76, \"height\": 90\n    },\n    {\n      \"id\": 7,\n      \"x\": 32, \"y\": 634, \"width\": 76, \"height\": 90\n    },\n    {\n      \"id\": 8,\n      \"x\": 32, \"y\": 731, \"width\": 76, \"height\": 90\n    },\n    {\n      \"id\": 9,\n      \"x\": 32, \"y\": 828, \"width\": 76, \"height\": 90\n    }\n  ]\n}"
+}

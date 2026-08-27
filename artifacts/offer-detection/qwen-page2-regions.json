@@ -1,0 +1,16 @@
+{
+  "model": "qwen2.5vl:3b",
+  "duration_ms": 1506,
+  "located": {
+    "regions": [
+      {
+        "id": 1,
+        "x": 0,
+        "y": 0,
+        "width": 100,
+        "height": 100
+      }
+    ]
+  },
+  "raw_response": "{\"regions\":[{\"id\":1,\"x\":0, \"y\":0, \"width\":100, \"height\":100}]}"
+}

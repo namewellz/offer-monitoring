@@ -1,0 +1,41 @@
+{
+  "method": "opencv_price_anchor_baseline",
+  "pages": [
+    {
+      "page": 1,
+      "expected": 26,
+      "detected": 23,
+      "count_coverage": 0.8846
+    },
+    {
+      "page": 2,
+      "expected": 45,
+      "detected": 45,
+      "count_coverage": 1.0
+    },
+    {
+      "page": 3,
+      "expected": 44,
+      "detected": 40,
+      "count_coverage": 0.9091
+    },
+    {
+      "page": 4,
+      "expected": 20,
+      "detected": 17,
+      "count_coverage": 0.85
+    },
+    {
+      "page": 5,
+      "expected": 16,
+      "detected": 12,
+      "count_coverage": 0.75
+    }
+  ],
+  "summary": {
+    "expected": 151,
+    "detected": 137,
+    "count_coverage": 0.9073,
+    "note": "Count coverage measures anchors only; it is not box precision or IoU."
+  }
+}

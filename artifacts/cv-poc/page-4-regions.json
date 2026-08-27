@@ -1,0 +1,138 @@
+[
+  {
+    "id": 1,
+    "x": 456,
+    "y": 24,
+    "width": 123,
+    "height": 117,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 2,
+    "x": 580,
+    "y": 25,
+    "width": 123,
+    "height": 117,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 3,
+    "x": 333,
+    "y": 28,
+    "width": 123,
+    "height": 117,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 4,
+    "x": 158,
+    "y": 140,
+    "width": 137,
+    "height": 117,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 5,
+    "x": 18,
+    "y": 142,
+    "width": 137,
+    "height": 117,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 6,
+    "x": 292,
+    "y": 145,
+    "width": 137,
+    "height": 117,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 7,
+    "x": 432,
+    "y": 258,
+    "width": 134,
+    "height": 117,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 8,
+    "x": 305,
+    "y": 259,
+    "width": 134,
+    "height": 117,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 9,
+    "x": 570,
+    "y": 259,
+    "width": 134,
+    "height": 117,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 10,
+    "x": 33,
+    "y": 260,
+    "width": 134,
+    "height": 117,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 11,
+    "x": 164,
+    "y": 264,
+    "width": 134,
+    "height": 117,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 12,
+    "x": 268,
+    "y": 370,
+    "width": 112,
+    "height": 117,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 13,
+    "x": 156,
+    "y": 371,
+    "width": 112,
+    "height": 117,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 14,
+    "x": 378,
+    "y": 371,
+    "width": 112,
+    "height": 117,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 15,
+    "x": 490,
+    "y": 371,
+    "width": 112,
+    "height": 117,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 16,
+    "x": 592,
+    "y": 372,
+    "width": 112,
+    "height": 117,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 17,
+    "x": 43,
+    "y": 378,
+    "width": 112,
+    "height": 117,
+    "anchor_kind": "red_de_price"
+  }
+]

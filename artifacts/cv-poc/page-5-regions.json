@@ -1,0 +1,98 @@
+[
+  {
+    "id": 1,
+    "x": 34,
+    "y": 111,
+    "width": 196,
+    "height": 216,
+    "anchor_kind": "light_price_panel"
+  },
+  {
+    "id": 2,
+    "x": 219,
+    "y": 124,
+    "width": 116,
+    "height": 200,
+    "anchor_kind": "light_price_panel"
+  },
+  {
+    "id": 3,
+    "x": 361,
+    "y": 138,
+    "width": 114,
+    "height": 188,
+    "anchor_kind": "light_price_panel"
+  },
+  {
+    "id": 4,
+    "x": 462,
+    "y": 184,
+    "width": 117,
+    "height": 197,
+    "anchor_kind": "light_price_panel"
+  },
+  {
+    "id": 5,
+    "x": 275,
+    "y": 223,
+    "width": 124,
+    "height": 187,
+    "anchor_kind": "light_price_panel"
+  },
+  {
+    "id": 6,
+    "x": 462,
+    "y": 281,
+    "width": 117,
+    "height": 234,
+    "anchor_kind": "light_price_panel"
+  },
+  {
+    "id": 7,
+    "x": 33,
+    "y": 320,
+    "width": 116,
+    "height": 196,
+    "anchor_kind": "light_price_panel"
+  },
+  {
+    "id": 8,
+    "x": 360,
+    "y": 327,
+    "width": 117,
+    "height": 189,
+    "anchor_kind": "light_price_panel"
+  },
+  {
+    "id": 9,
+    "x": 137,
+    "y": 329,
+    "width": 116,
+    "height": 186,
+    "anchor_kind": "light_price_panel"
+  },
+  {
+    "id": 10,
+    "x": 243,
+    "y": 341,
+    "width": 139,
+    "height": 174,
+    "anchor_kind": "light_price_panel"
+  },
+  {
+    "id": 11,
+    "x": 336,
+    "y": 412,
+    "width": 136,
+    "height": 204,
+    "anchor_kind": "light_price_panel"
+  },
+  {
+    "id": 12,
+    "x": 239,
+    "y": 418,
+    "width": 103,
+    "height": 196,
+    "anchor_kind": "light_price_panel"
+  }
+]

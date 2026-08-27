@@ -1,0 +1,1 @@
+"""Structured product catalog collectors."""

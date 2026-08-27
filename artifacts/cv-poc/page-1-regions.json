@@ -1,0 +1,186 @@
+[
+  {
+    "id": 1,
+    "x": 449,
+    "y": 261,
+    "width": 168,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 2,
+    "x": 631,
+    "y": 261,
+    "width": 141,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 3,
+    "x": 295,
+    "y": 265,
+    "width": 168,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 4,
+    "x": 23,
+    "y": 288,
+    "width": 105,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 5,
+    "x": 287,
+    "y": 421,
+    "width": 105,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 6,
+    "x": 551,
+    "y": 423,
+    "width": 105,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 7,
+    "x": 20,
+    "y": 433,
+    "width": 105,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 8,
+    "x": 617,
+    "y": 445,
+    "width": 105,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 9,
+    "x": 510,
+    "y": 565,
+    "width": 107,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 10,
+    "x": 324,
+    "y": 569,
+    "width": 107,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 11,
+    "x": 217,
+    "y": 574,
+    "width": 107,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 12,
+    "x": 614,
+    "y": 577,
+    "width": 107,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 13,
+    "x": 20,
+    "y": 602,
+    "width": 105,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 14,
+    "x": 218,
+    "y": 702,
+    "width": 99,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 15,
+    "x": 418,
+    "y": 702,
+    "width": 99,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 16,
+    "x": 616,
+    "y": 702,
+    "width": 99,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 17,
+    "x": 518,
+    "y": 704,
+    "width": 99,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 18,
+    "x": 316,
+    "y": 713,
+    "width": 99,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 19,
+    "x": 21,
+    "y": 739,
+    "width": 105,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 20,
+    "x": 332,
+    "y": 858,
+    "width": 112,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 21,
+    "x": 428,
+    "y": 858,
+    "width": 112,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 22,
+    "x": 220,
+    "y": 859,
+    "width": 112,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  },
+  {
+    "id": 23,
+    "x": 23,
+    "y": 880,
+    "width": 112,
+    "height": 129,
+    "anchor_kind": "red_de_price"
+  }
+]
