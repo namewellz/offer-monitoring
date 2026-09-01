@@ -83,7 +83,11 @@ def _persist_catalog(
         store_id=store.id if store else None,
         provider_type=provider_type,
         source_url=catalog["source"],
-        status=RunStatus.SUCCESS,
+        status=(
+            RunStatus.PARTIAL_SUCCESS
+            if catalog.get("collection_errors")
+            else RunStatus.SUCCESS
+        ),
         collected_at=observed_at,
         product_count=len(products),
         priced_product_count=sum(
@@ -94,6 +98,8 @@ def _persist_catalog(
             "store": catalog.get("store"),
             "weekly_offer_count": catalog.get("weekly_offer_count"),
             "promotion_count": catalog.get("promotion_count"),
+            "collection_status": catalog.get("collection_status", "SUCCESS"),
+            "collection_errors": catalog.get("collection_errors", []),
         },
     )
     db.add(run)

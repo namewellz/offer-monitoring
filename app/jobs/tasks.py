@@ -70,7 +70,7 @@ CATALOG_COLLECTORS = {
 }
 
 
-def run_catalog_collection(retailer_slug: str) -> str | None:
+def run_catalog_collection(retailer_slug: str) -> dict | None:
     if retailer_slug not in CATALOG_COLLECTORS:
         raise ValueError(f"Unknown catalog retailer: {retailer_slug}")
     lock = _locked(f"catalog:{retailer_slug}")
@@ -83,6 +83,10 @@ def run_catalog_collection(retailer_slug: str) -> str | None:
         write_catalog(catalog, Path(output), prefix=prefix)
         with SessionLocal() as db:
             run = persist(db, catalog)
-            return str(run.id)
+            return {
+                "run_id": str(run.id),
+                "status": run.status.value,
+                "errors": catalog.get("collection_errors", []),
+            }
     finally:
         lock.release()

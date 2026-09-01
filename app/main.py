@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from html import escape
 from pathlib import Path
 
@@ -10,8 +11,9 @@ from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.annotation.routes import router as annotation_router
-from app.catalog.dashboard import render_catalog_dashboard
+from app.catalog.dashboard import RETAILERS, render_catalog_dashboard
 from app.catalog.taxonomy import CANONICAL_DEPARTMENTS
+from app.catalog.update_dashboard import render_update_dashboard
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.models import (
@@ -37,6 +39,7 @@ from app.jobs.queue import (
     enqueue_catalog_collection,
     enqueue_discovery,
     get_queue,
+    recent_catalog_collection_jobs,
 )
 from app.jobs.tasks import CATALOG_COLLECTORS
 
@@ -606,6 +609,18 @@ def catalog_price_history(
     )
 
 
+@app.post("/catalog/collections", status_code=202)
+def request_all_catalog_collections():
+    jobs = [
+        {
+            "job_id": enqueue_catalog_collection(retailer_slug),
+            "retailer": retailer_slug,
+        }
+        for retailer_slug in CATALOG_COLLECTORS
+    ]
+    return {"jobs": jobs, "total": len(jobs)}
+
+
 @app.post("/catalog/collections/{retailer_slug}", status_code=202)
 def request_catalog_collection(retailer_slug: str):
     if retailer_slug not in CATALOG_COLLECTORS:
@@ -619,6 +634,94 @@ def catalog_collection_status(job_id: str):
     if job is None:
         raise HTTPException(404, "Atualização não encontrada")
     return job
+
+
+@app.get("/catalog/collections/jobs")
+def catalog_collection_history(limit: int = 20):
+    return {"jobs": recent_catalog_collection_jobs(limit)}
+
+
+def catalog_update_log_results(db: Session, executions_per_source: int = 10) -> list[dict]:
+    rows = db.execute(
+        select(CatalogRun, Retailer)
+        .join(Retailer, Retailer.id == CatalogRun.retailer_id)
+        .order_by(CatalogRun.collected_at.desc())
+        .limit(300)
+    ).all()
+    runs_by_id = {str(run.id): run for run, _ in rows}
+    groups = {
+        slug: {
+            "slug": slug,
+            "name": name,
+            "latest_product_count": 0,
+            "latest_priced_product_count": 0,
+            "latest_collected_at": None,
+            "executions": [],
+        }
+        for slug, name in RETAILERS
+    }
+    represented_runs: set[str] = set()
+    for job in recent_catalog_collection_jobs(100):
+        slug = job.get("retailer")
+        if slug not in groups:
+            continue
+        result = job.get("result") if isinstance(job.get("result"), dict) else {}
+        run_id = result.get("run_id")
+        run = runs_by_id.get(run_id)
+        if run_id:
+            represented_runs.add(run_id)
+        errors = list(job.get("warnings") or [])
+        if job.get("error"):
+            errors.append({"scope": "coleta", "error": job["error"]})
+        groups[slug]["executions"].append(
+            {
+                "status": job.get("outcome") or str(job.get("status") or "").upper(),
+                "occurred_at": job.get("ended_at")
+                or job.get("started_at")
+                or job.get("enqueued_at"),
+                "product_count": run.product_count if run else None,
+                "priced_product_count": run.priced_product_count if run else None,
+                "errors": errors,
+            }
+        )
+
+    for run, retailer in rows:
+        group = groups.get(retailer.slug)
+        if group is None:
+            continue
+        if group["latest_collected_at"] is None:
+            group["latest_product_count"] = run.product_count
+            group["latest_priced_product_count"] = run.priced_product_count
+            group["latest_collected_at"] = run.collected_at
+        if str(run.id) in represented_runs:
+            continue
+        context = run.source_context or {}
+        group["executions"].append(
+            {
+                "status": run.status.value,
+                "occurred_at": run.collected_at,
+                "product_count": run.product_count,
+                "priced_product_count": run.priced_product_count,
+                "errors": context.get("collection_errors") or [],
+            }
+        )
+
+    for group in groups.values():
+        for execution in group["executions"]:
+            occurred_at = execution["occurred_at"]
+            if isinstance(occurred_at, str):
+                execution["occurred_at"] = datetime.fromisoformat(occurred_at)
+        group["executions"].sort(
+            key=lambda execution: execution["occurred_at"] or datetime.min.replace(tzinfo=UTC),
+            reverse=True,
+        )
+        group["executions"] = group["executions"][:executions_per_source]
+    return list(groups.values())
+
+
+@app.get("/catalog/updates", response_class=HTMLResponse, include_in_schema=False)
+def catalog_update_dashboard(db: Session = Depends(get_db)):
+    return render_update_dashboard(catalog_update_log_results(db))
 
 
 @app.get("/catalog", response_class=HTMLResponse, include_in_schema=False)

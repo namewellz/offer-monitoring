@@ -27,9 +27,12 @@ def test_catalog_dashboard_has_mobile_and_manual_update_controls() -> None:
 
     assert 'name="viewport"' in html
     assert 'id="manual-update"' in html
+    assert 'id="update-all-button"' in html
+    assert 'id="collection-history"' in html
+    assert "Forçar atualização de todas as fontes" in html
     assert 'value="sao-vicente"' in html
-    assert "/static/catalog.css" in html
-    assert "/static/catalog.js" in html
+    assert "/static/catalog.css?v=" in html
+    assert "/static/catalog.js?v=" in html
     assert "São Vicente Hortolândia" in html
     assert 'name="view"' in html
     assert 'value="all" selected' in html

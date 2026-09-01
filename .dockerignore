@@ -5,4 +5,7 @@
 __pycache__
 *.pyc
 artifacts
+backup
+backups
 data
+outputs

@@ -9,6 +9,8 @@ from typing import Any
 
 import httpx
 
+from app.catalog.resilience import collection_issue, collection_metadata, require_products
+
 BASE_URL = (
     "https://www.arenaatacado.com.br/on/demandware.store/"
     "Sites-Arena-Site/pt_BR/Search-UpdateGrid"
@@ -108,21 +110,28 @@ class ArenaCatalogClient:
         self.client = client
         self.page_size = page_size
 
-    async def _department(self, client: httpx.AsyncClient, category_id: str) -> list[dict]:
+    async def _department(
+        self, client: httpx.AsyncClient, category_id: str
+    ) -> tuple[list[dict], list[dict[str, str]]]:
         products: list[dict] = []
+        errors: list[dict[str, str]] = []
         start = 0
         while True:
-            response = await client.get(
-                BASE_URL,
-                params={"cgid": category_id, "start": start, "sz": self.page_size},
-            )
-            response.raise_for_status()
+            try:
+                response = await client.get(
+                    BASE_URL,
+                    params={"cgid": category_id, "start": start, "sz": self.page_size},
+                )
+                response.raise_for_status()
+            except Exception as error:
+                errors.append(collection_issue(f"department={category_id} start={start}", error))
+                return products, errors
             payload = response.json()
             page = payload.get("productsSearchResult") or []
             products.extend(page)
             total = int((payload.get("productSearch") or {}).get("count") or 0)
             if not page or len(products) >= total:
-                return products
+                return products, errors
             start += len(page)
 
     async def collect(self) -> dict[str, Any]:
@@ -135,8 +144,10 @@ class ArenaCatalogClient:
         try:
             merged: dict[str, ArenaProduct] = {}
             department_counts: dict[str, int] = {}
+            collection_errors: list[dict[str, str]] = []
             for category_id, fallback_name in DEPARTMENTS.items():
-                raw_products = await self._department(client, category_id)
+                raw_products, errors = await self._department(client, category_id)
+                collection_errors.extend(errors)
                 department_counts[category_id] = len(raw_products)
                 for raw in raw_products:
                     product = parse_product(raw, fallback_name)
@@ -147,6 +158,7 @@ class ArenaCatalogClient:
                     else:
                         merged[product.id] = product
             products = sorted(merged.values(), key=lambda item: (item.name.casefold(), item.id))
+            require_products(products, collection_errors)
             return {
                 "retailer": "Arena Atacado",
                 "source": BASE_URL,
@@ -154,6 +166,7 @@ class ArenaCatalogClient:
                 "department_counts": department_counts,
                 "product_count": len(products),
                 "products": [asdict(product) for product in products],
+                **collection_metadata(collection_errors),
             }
         finally:
             if owns_client:

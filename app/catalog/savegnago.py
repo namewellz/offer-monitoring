@@ -10,6 +10,7 @@ import httpx
 
 from app.catalog.arena import ArenaProduct
 from app.catalog.atacadao import _leaf_categories, _top_categories
+from app.catalog.resilience import collection_issue, collection_metadata, require_products
 
 ACCOUNT_URL = "https://savegnagoio.vtexcommercestable.com.br"
 SEARCH_URL = f"{ACCOUNT_URL}/api/catalog_system/pub/products/search"
@@ -99,7 +100,7 @@ class SavegnagoCatalogClient:
         client: httpx.AsyncClient,
         semaphore: asyncio.Semaphore,
         filters: str | list[str],
-    ) -> tuple[int, list[dict[str, Any]]]:
+    ) -> tuple[int, list[dict[str, Any]], list[dict[str, str]]]:
         async with semaphore:
             first = await self._request(client, {"fq": filters, "_from": 0, "_to": PAGE_SIZE - 1})
         match = re.search(r"/(\d+)$", first.headers.get("resources", ""))
@@ -119,13 +120,18 @@ class SavegnagoCatalogClient:
             return response.json()
 
         pages = [first.json()]
+        errors: list[dict[str, str]] = []
         if fetch_total > PAGE_SIZE:
-            pages.extend(
-                await asyncio.gather(
-                    *(page(start) for start in range(PAGE_SIZE, fetch_total, PAGE_SIZE))
-                )
+            starts = list(range(PAGE_SIZE, fetch_total, PAGE_SIZE))
+            results = await asyncio.gather(
+                *(page(start) for start in starts), return_exceptions=True
             )
-        return total, [product for values in pages for product in values]
+            for start, result in zip(starts, results, strict=True):
+                if isinstance(result, BaseException):
+                    errors.append(collection_issue(f"filter={filters} start={start}", result))
+                else:
+                    pages.append(result)
+        return total, [product for values in pages for product in values], errors
 
     async def _simulation(
         self,
@@ -158,7 +164,7 @@ class SavegnagoCatalogClient:
 
     async def _apply_store_prices(
         self, client: httpx.AsyncClient, products: list[ArenaProduct]
-    ) -> None:
+    ) -> list[dict[str, str]]:
         for product in products:
             product.available = False
             product.stock = None
@@ -171,10 +177,18 @@ class SavegnagoCatalogClient:
         ]
         semaphore = asyncio.Semaphore(self.concurrency)
         responses = await asyncio.gather(
-            *(self._simulation(client, semaphore, batch) for batch in batches)
+            *(self._simulation(client, semaphore, batch) for batch in batches),
+            return_exceptions=True,
         )
+        errors: list[dict[str, str]] = []
+        valid_responses = []
+        for index, response in enumerate(responses, start=1):
+            if isinstance(response, BaseException):
+                errors.append(collection_issue(f"price-simulation batch={index}", response))
+            else:
+                valid_responses.append(response)
         by_id = {product.id: product for product in products}
-        for raw in (item for response in responses for item in response):
+        for raw in (item for response in valid_responses for item in response):
             product = by_id.get(str(raw.get("id")))
             if product is None:
                 continue
@@ -187,6 +201,7 @@ class SavegnagoCatalogClient:
                 product.regular_price /= 100
             if product.regular_price is not None and product.sales_price is not None:
                 product.discount = max(0.0, product.regular_price - product.sales_price)
+        return errors
 
     async def collect(self) -> dict[str, Any]:
         owns_client = self.client is None
@@ -223,13 +238,19 @@ class SavegnagoCatalogClient:
             )
             semaphore = asyncio.Semaphore(self.concurrency)
             results = await asyncio.gather(
-                *(self._query(client, semaphore, filters) for _, filters, _ in queries)
+                *(self._query(client, semaphore, filters) for _, filters, _ in queries),
+                return_exceptions=True,
             )
             merged: dict[str, ArenaProduct] = {}
             query_counts = {}
-            for (label, _, weekly_offer), (total, raw_products) in zip(
-                queries, results, strict=True
-            ):
+            collection_errors: list[dict[str, str]] = []
+            for (label, _, weekly_offer), result in zip(queries, results, strict=True):
+                if isinstance(result, BaseException):
+                    collection_errors.append(collection_issue(label, result))
+                    query_counts[label] = 0
+                    continue
+                total, raw_products, errors = result
+                collection_errors.extend(errors)
                 query_counts[label] = total
                 for raw in raw_products:
                     for product in parse_products(raw, weekly_offer=weekly_offer):
@@ -244,7 +265,8 @@ class SavegnagoCatalogClient:
                         else:
                             merged[product.id] = product
             products = sorted(merged.values(), key=lambda item: (item.name.casefold(), item.id))
-            await self._apply_store_prices(client, products)
+            require_products(products, collection_errors)
+            collection_errors.extend(await self._apply_store_prices(client, products))
             return {
                 "retailer": "Savegnago",
                 "source": SEARCH_URL,
@@ -266,6 +288,7 @@ class SavegnagoCatalogClient:
                 ),
                 "product_count": len(products),
                 "products": [asdict(product) for product in products],
+                **collection_metadata(collection_errors),
             }
         finally:
             if owns_client:

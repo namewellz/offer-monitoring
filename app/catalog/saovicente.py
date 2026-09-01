@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from app.catalog.arena import ArenaProduct, TierPrice
+from app.catalog.resilience import collection_issue, collection_metadata, require_products
 
 SOURCE_URL = "https://www.svicente.com.br/"
 BASE_URL = (
@@ -128,21 +129,26 @@ class SaoVicenteCatalogClient:
 
     async def _department(
         self, client: httpx.AsyncClient, category_id: str
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
         products: list[dict[str, Any]] = []
+        errors: list[dict[str, str]] = []
         start = 0
         while True:
-            response = await client.get(
-                SEARCH_URL,
-                params={"cgid": category_id, "start": start, "sz": self.page_size},
-            )
-            response.raise_for_status()
+            try:
+                response = await client.get(
+                    SEARCH_URL,
+                    params={"cgid": category_id, "start": start, "sz": self.page_size},
+                )
+                response.raise_for_status()
+            except Exception as error:
+                errors.append(collection_issue(f"department={category_id} start={start}", error))
+                return products, errors
             payload = response.json()
             page = payload.get("productsSearchResult") or []
             products.extend(page)
             total = int((payload.get("productSearch") or {}).get("count") or 0)
             if not page or len(products) >= total:
-                return products
+                return products, errors
             start += len(page)
 
     async def collect(self) -> dict[str, Any]:
@@ -156,8 +162,10 @@ class SaoVicenteCatalogClient:
             await self._select_store(client)
             merged: dict[str, ArenaProduct] = {}
             department_counts: dict[str, int] = {}
+            collection_errors: list[dict[str, str]] = []
             for category_id, category in DEPARTMENTS.items():
-                raw_products = await self._department(client, category_id)
+                raw_products, errors = await self._department(client, category_id)
+                collection_errors.extend(errors)
                 department_counts[category] = len(raw_products)
                 for raw in raw_products:
                     product = parse_product(raw, category)
@@ -167,6 +175,7 @@ class SaoVicenteCatalogClient:
                     elif category not in existing.categories:
                         existing.categories.append(category)
             products = sorted(merged.values(), key=lambda item: (item.name.casefold(), item.id))
+            require_products(products, collection_errors)
             return {
                 "retailer": "São Vicente",
                 "source": SOURCE_URL,
@@ -175,6 +184,7 @@ class SaoVicenteCatalogClient:
                 "department_counts": department_counts,
                 "product_count": len(products),
                 "products": [asdict(product) for product in products],
+                **collection_metadata(collection_errors),
             }
         finally:
             if owns_client:

@@ -12,6 +12,7 @@ __pycache__/
 data/
 backup/
 backups/
+outputs/
 *.dump
 *.tar.gz
 *.bak

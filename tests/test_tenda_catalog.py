@@ -112,3 +112,25 @@ async def test_tenda_collector_merges_source_departments() -> None:
     assert canonical_department(
         catalog["products"][0]["categories"], catalog["products"][0]["name"]
     ) == "Açougue"
+
+
+async def test_tenda_department_keeps_good_pages_when_one_page_fails() -> None:
+    collector = TendaCatalogClient(max_pages=3)
+
+    async def page(_client, _category_id, page_number):
+        if page_number == 2:
+            raise httpx.HTTPStatusError(
+                "temporary failure",
+                request=httpx.Request("GET", "https://example.test/page/2"),
+                response=httpx.Response(500),
+            )
+        return {
+            "total_pages": 3,
+            "products": [{"id": page_number, "name": f"Produto {page_number}"}],
+        }
+
+    collector._page = page
+    products, errors = await collector._department(None, 10)
+
+    assert [product["id"] for product in products] == [1, 3]
+    assert errors[0]["scope"] == "department=10 page=2"

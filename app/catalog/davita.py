@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from app.catalog.arena import ArenaProduct, TierPrice
+from app.catalog.resilience import collection_issue, collection_metadata, require_products
 from app.core.config import get_settings
 
 API_URL = "https://api.mobilesim.com.br"
@@ -176,14 +177,24 @@ class DavitaCatalogClient:
                 return (payload.get("return") or {}).get("products") or []
 
             pages = [first_return.get("products") or []]
+            collection_errors: list[dict[str, str]] = []
             if page_count > 1:
-                pages.extend(await asyncio.gather(*(page(number) for number in range(1, page_count))))
+                page_numbers = list(range(1, page_count))
+                results = await asyncio.gather(
+                    *(page(number) for number in page_numbers), return_exceptions=True
+                )
+                for page_number, result in zip(page_numbers, results, strict=True):
+                    if isinstance(result, BaseException):
+                        collection_errors.append(collection_issue(f"page={page_number}", result))
+                    else:
+                        pages.append(result)
             merged = {
                 product.id: product
                 for raw in (item for values in pages for item in values)
                 for product in [parse_product(raw)]
             }
             products = sorted(merged.values(), key=lambda item: (item.name.casefold(), item.id))
+            require_products(products, collection_errors)
             return {
                 "retailer": "Davitta Supermercados",
                 "source": f"{OFFERS_URL}/{{page}}/0/{tab_id}",
@@ -200,6 +211,7 @@ class DavitaCatalogClient:
                 "promotion_count": len(products),
                 "product_count": len(products),
                 "products": [asdict(product) for product in products],
+                **collection_metadata(collection_errors),
             }
         finally:
             if owns_client:

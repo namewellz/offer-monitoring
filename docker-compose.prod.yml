@@ -1,0 +1,115 @@
+x-app-environment: &app-environment
+  APP_ENV: production
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-flyer}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-flyer}
+  REDIS_URL: redis://redis:6379/0
+  FLYER_STORAGE_PATH: /data
+  DISCOVERY_ENABLED: ${DISCOVERY_ENABLED:-false}
+  CATALOG_COLLECTION_ENABLED: ${CATALOG_COLLECTION_ENABLED:-false}
+  CATALOG_COLLECTION_CRON: ${CATALOG_COLLECTION_CRON:-0 6,14,22 * * *}
+  SCHEDULER_TIMEZONE: ${SCHEDULER_TIMEZONE:-America/Sao_Paulo}
+  DAVITA_TOKEN_FILE: /run/secrets/davita_dotenv
+  ASSAI_USERNAME: ${ASSAI_USERNAME:-}
+  ASSAI_PASSWORD: ${ASSAI_PASSWORD:-}
+  ASSAI_BUNDLE_FILE: /run/secrets/meu_assai_bundle.js
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-flyer}
+      POSTGRES_USER: ${POSTGRES_USER:-flyer}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - /srv/offer-monitoring/postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - /srv/offer-monitoring/redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks:
+      - internal
+
+  api:
+    image: ${APP_IMAGE:-ghcr.io/namewellz/offer-monitoring:latest}
+    pull_policy: always
+    restart: unless-stopped
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    environment: *app-environment
+    volumes:
+      - /srv/offer-monitoring/flyer-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    networks:
+      internal:
+      proxy:
+        aliases:
+          - offer-monitoring-api
+
+  scheduler:
+    image: ${APP_IMAGE:-ghcr.io/namewellz/offer-monitoring:latest}
+    pull_policy: always
+    restart: unless-stopped
+    command: python -m app.scheduler
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    networks:
+      - internal
+
+  worker:
+    image: ${APP_IMAGE:-ghcr.io/namewellz/offer-monitoring:latest}
+    pull_policy: always
+    restart: unless-stopped
+    command: python -m app.worker
+    environment: *app-environment
+    volumes:
+      - /srv/offer-monitoring/flyer-data:/data
+      - type: bind
+        source: /srv/offer-monitoring/secrets/davita_dotenv
+        target: /run/secrets/davita_dotenv
+        read_only: true
+      - type: bind
+        source: /srv/offer-monitoring/secrets/meu_assai_bundle.js
+        target: /run/secrets/meu_assai_bundle.js
+        read_only: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    networks:
+      - internal
+
+networks:
+  internal:
+    name: offer-monitoring-internal
+  proxy:
+    external: true

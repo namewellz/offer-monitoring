@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from app.catalog.arena import ArenaProduct, TierPrice
+from app.catalog.resilience import collection_issue, collection_metadata, require_products
 
 GRAPHQL_URL = "https://fed-gateway.mercafacil.com/graphql"
 STORE_ID = "2"
@@ -134,11 +135,19 @@ class GoodBomCatalogClient:
         try:
             merged: dict[str, ArenaProduct] = {}
             department_counts: dict[str, int] = {}
+            collection_errors: list[dict[str, str]] = []
             for department_id, department_name in DEPARTMENTS.items():
                 page = 1
                 received = 0
                 while True:
-                    result = await self._page(client, department_id, page)
+                    try:
+                        result = await self._page(client, department_id, page)
+                    except Exception as error:
+                        collection_errors.append(
+                            collection_issue(f"department={department_id} page={page}", error)
+                        )
+                        department_counts[department_id] = received
+                        break
                     raw_products = result.get("products") or []
                     total = int(result.get("records") or 0)
                     received += len(raw_products)
@@ -156,6 +165,7 @@ class GoodBomCatalogClient:
                         break
                     page += 1
             products = sorted(merged.values(), key=lambda item: (item.name.casefold(), item.id))
+            require_products(products, collection_errors)
             return {
                 "retailer": "GoodBom",
                 "source": GRAPHQL_URL,
@@ -170,6 +180,7 @@ class GoodBomCatalogClient:
                 },
                 "product_count": len(products),
                 "products": [asdict(product) for product in products],
+                **collection_metadata(collection_errors),
             }
         finally:
             if owns_client:

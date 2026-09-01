@@ -182,7 +182,7 @@ def render_catalog_dashboard(
 <html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#145c42"><title>Monitor de preços</title>
-<link rel="stylesheet" href="/static/catalog.css"></head>
+<link rel="stylesheet" href="/static/catalog.css?v=20260829-4"></head>
 <body><header class="topbar"><div class="shell brandbar">
 <a class="brand" href="/catalog"><span class="brand-mark">OM</span><span>Offer Monitor</span></a>
 <span class="live"><i></i> Monitoramento ativo</span></div></header>
@@ -231,11 +231,17 @@ def render_catalog_dashboard(
 <section class="update-card" id="manual-update"><span class="eyebrow">Controle</span><h2>Atualização manual</h2>
 <p>Solicite uma nova coleta sem esperar o próximo horário automático.</p>
 <label><span>Supermercado</span><select id="update-retailer">{_options(RETAILERS, "sao-vicente")}</select></label>
-<button class="primary full" id="update-button" type="button">Iniciar atualização</button>
-<div id="update-status" class="update-status" role="status" aria-live="polite"></div></section>
+<button class="primary full" id="update-button" type="button">Atualizar supermercado selecionado</button>
+<div class="update-divider"><span>ou</span></div>
+<button class="secondary full" id="update-all-button" type="button">Forçar atualização de todas as fontes</button>
+<div id="update-status" class="update-status" role="status" aria-live="polite"></div>
+<a class="log-link" href="/catalog/updates">Ver log completo de atualizações →</a></section>
 <section class="sources-card"><div class="section-heading"><div><h2>Últimas fontes</h2><p>Volume da coleta atual</p></div></div>
 <ul class="source-list">{run_items or '<li class="muted">Nenhuma coleta disponível.</li>'}</ul></section>
+<section class="activity-card"><div class="section-heading"><div><h2>Histórico de atualizações</h2>
+<p>Status e erros das coletas recentes</p></div><button class="history-refresh" id="history-refresh" type="button" aria-label="Atualizar histórico">↻</button></div>
+<div id="collection-history" class="collection-history" aria-live="polite"><p class="muted">Carregando histórico…</p></div></section>
 </aside></section></main>
-<script src="/static/catalog.js" defer></script></body></html>""".replace(
+<script src="/static/catalog.js?v=20260829-4" defer></script></body></html>""".replace(
         f"{total_products:,}", f"{total_products:,}".replace(",", ".")
     )

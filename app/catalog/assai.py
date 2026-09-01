@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 
 from app.catalog.arena import ArenaProduct, TierPrice
+from app.catalog.resilience import collection_issue, collection_metadata, require_products
 from app.core.config import get_settings
 
 API_URL = "https://api-clientes.assai.com.br"
@@ -232,18 +233,23 @@ class AssaiCatalogClient:
         term: str,
         products: dict[str, ArenaProduct],
         semaphore: asyncio.Semaphore,
+        collection_errors: list[dict[str, str]],
     ) -> int:
         page = 1
         total_pages = 1
         item_count = 0
         while page <= total_pages:
-            payload = await self._request_json(
-                client,
-                f"{API_URL}/shopping/store/{STORE_CODE}/product-search/{term}",
-                headers,
-                {"page": page, "size": PAGE_SIZE},
-                semaphore,
-            )
+            try:
+                payload = await self._request_json(
+                    client,
+                    f"{API_URL}/shopping/store/{STORE_CODE}/product-search/{term}",
+                    headers,
+                    {"page": page, "size": PAGE_SIZE},
+                    semaphore,
+                )
+            except Exception as error:
+                collection_errors.append(collection_issue(f"search={term} page={page}", error))
+                return item_count
             items = _extract_items(payload)
             item_count += len(items)
             for raw in items:
@@ -255,12 +261,19 @@ class AssaiCatalogClient:
         return item_count
 
     async def _promotions(
-        self, client: httpx.AsyncClient, headers: dict[str, str]
+        self,
+        client: httpx.AsyncClient,
+        headers: dict[str, str],
+        collection_errors: list[dict[str, str]],
     ) -> list[ArenaProduct]:
         products: dict[str, ArenaProduct] = {}
         page = 1
         while True:
-            payload = await self._catalog_page(client, headers, page)
+            try:
+                payload = await self._catalog_page(client, headers, page)
+            except Exception as error:
+                collection_errors.append(collection_issue(f"promotions page={page}", error))
+                return list(products.values())
             items = _extract_items(payload)
             for raw in items:
                 product = parse_product(raw)
@@ -291,14 +304,17 @@ class AssaiCatalogClient:
             token = await self._authenticate(client, user_pool_id, client_id)
             headers = self._headers(basic, token)
             products: dict[str, ArenaProduct] = {}
+            collection_errors: list[dict[str, str]] = []
             semaphore = asyncio.Semaphore(SEARCH_CONCURRENCY)
             counts = await asyncio.gather(
                 *(
-                    self._collect_search_term(client, headers, term, products, semaphore)
+                    self._collect_search_term(
+                        client, headers, term, products, semaphore, collection_errors
+                    )
                     for term in SEARCH_TERMS
                 )
             )
-            promotions = await self._promotions(client, headers)
+            promotions = await self._promotions(client, headers, collection_errors)
             for promotion in promotions:
                 product = products.get(promotion.id)
                 if product is None:
@@ -306,6 +322,7 @@ class AssaiCatalogClient:
                 else:
                     self._merge_promotion(product, promotion)
             ordered = sorted(products.values(), key=lambda item: (item.name.casefold(), item.id))
+            require_products(ordered, collection_errors)
             return {
                 "retailer": "Assaí Atacadista",
                 "source": f"{API_URL}/shopping/store/{STORE_CODE}/product-search",
@@ -325,6 +342,7 @@ class AssaiCatalogClient:
                 "promotion_count": len(promotions),
                 "product_count": len(ordered),
                 "products": [asdict(product) for product in ordered],
+                **collection_metadata(collection_errors),
             }
         finally:
             if owns_client:

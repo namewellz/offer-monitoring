@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 
 from app.catalog.arena import ArenaProduct, TierPrice
+from app.catalog.resilience import collection_issue, collection_metadata, require_products
 
 API_URL = "https://api.tendaatacado.com.br/api"
 DEPARTMENTS_URL = f"{API_URL}/public/store/departments"
@@ -151,20 +152,28 @@ class TendaCatalogClient:
 
     async def _department(
         self, client: httpx.AsyncClient, category_id: int
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
         first = await self._page(client, category_id, 1)
+        errors: list[dict[str, str]] = []
         total_pages = int(first.get("total_pages") or 1)
         if self.max_pages is not None:
             total_pages = min(total_pages, self.max_pages)
         if total_pages == 1:
-            return list(first.get("products") or [])
+            return list(first.get("products") or []), errors
+        page_numbers = list(range(2, total_pages + 1))
         pages = await asyncio.gather(
-            *(self._page(client, category_id, page) for page in range(2, total_pages + 1))
+            *(self._page(client, category_id, page) for page in page_numbers),
+            return_exceptions=True,
         )
         products = list(first.get("products") or [])
-        for payload in pages:
+        for page_number, payload in zip(page_numbers, pages, strict=True):
+            if isinstance(payload, BaseException):
+                errors.append(
+                    collection_issue(f"department={category_id} page={page_number}", payload)
+                )
+                continue
             products.extend(payload.get("products") or [])
-        return products
+        return products, errors
 
     async def collect(self) -> dict[str, Any]:
         owns_client = self.client is None
@@ -182,12 +191,22 @@ class TendaCatalogClient:
         try:
             departments = await self._get_json(client, DEPARTMENTS_URL)
             department_products = await asyncio.gather(
-                *(self._department(client, int(department["id"])) for department in departments)
+                *(self._department(client, int(department["id"])) for department in departments),
+                return_exceptions=True,
             )
             merged: dict[str, ArenaProduct] = {}
             department_counts: dict[str, int] = {}
-            for department, raw_products in zip(departments, department_products, strict=True):
+            collection_errors: list[dict[str, str]] = []
+            for department, result in zip(departments, department_products, strict=True):
                 category = str(department.get("name") or "Outros").strip()
+                if isinstance(result, BaseException):
+                    collection_errors.append(
+                        collection_issue(f"department={department.get('id')} page=1", result)
+                    )
+                    department_counts[category] = 0
+                    continue
+                raw_products, errors = result
+                collection_errors.extend(errors)
                 department_counts[category] = len(raw_products)
                 for raw in raw_products:
                     product = parse_product(raw, category, self.branch_id)
@@ -200,6 +219,7 @@ class TendaCatalogClient:
                                 existing.categories.append(source_category)
 
             products = sorted(merged.values(), key=lambda item: (item.name.casefold(), item.id))
+            require_products(products, collection_errors)
             return {
                 "retailer": "Tenda Atacado",
                 "source": SOURCE_URL,
@@ -208,6 +228,7 @@ class TendaCatalogClient:
                 "department_counts": department_counts,
                 "product_count": len(products),
                 "products": [asdict(product) for product in products],
+                **collection_metadata(collection_errors),
             }
         finally:
             if owns_client:

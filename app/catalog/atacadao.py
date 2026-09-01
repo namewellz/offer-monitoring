@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from app.catalog.arena import ArenaProduct
+from app.catalog.resilience import collection_issue, collection_metadata, require_products
 
 ACCOUNT_URL = "https://atacadaobr.vtexcommercestable.com.br"
 SEARCH_URL = f"{ACCOUNT_URL}/api/catalog_system/pub/products/search"
@@ -104,12 +105,13 @@ class AtacadaoCatalogClient:
 
     async def _category(
         self, client: httpx.AsyncClient, semaphore: asyncio.Semaphore, fq: str | list[str]
-    ) -> tuple[int, list[dict[str, Any]]]:
+    ) -> tuple[int, list[dict[str, Any]], list[dict[str, str]]]:
         async with semaphore:
             first = await self._request(client, {"fq": fq, "_from": 0, "_to": PAGE_SIZE - 1})
         match = re.search(r"/(\d+)$", first.headers.get("resources", ""))
         total = int(match.group(1)) if match else len(first.json())
         pages = [first.json()]
+        errors: list[dict[str, str]] = []
         fetch_total = min(total, 2501)  # VTEX rejects _from values above 2500.
 
         async def fetch(start: int) -> list[dict[str, Any]]:
@@ -121,12 +123,16 @@ class AtacadaoCatalogClient:
             return response.json()
 
         if fetch_total > PAGE_SIZE:
-            pages.extend(
-                await asyncio.gather(
-                    *(fetch(start) for start in range(PAGE_SIZE, fetch_total, PAGE_SIZE))
-                )
+            starts = list(range(PAGE_SIZE, fetch_total, PAGE_SIZE))
+            results = await asyncio.gather(
+                *(fetch(start) for start in starts), return_exceptions=True
             )
-        return total, [product for page in pages for product in page]
+            for start, result in zip(starts, results, strict=True):
+                if isinstance(result, BaseException):
+                    errors.append(collection_issue(f"filter={fq} start={start}", result))
+                else:
+                    pages.append(result)
+        return total, [product for page in pages for product in page], errors
 
     async def _simulation(
         self,
@@ -160,7 +166,7 @@ class AtacadaoCatalogClient:
 
     async def _apply_store_prices(
         self, client: httpx.AsyncClient, products: list[ArenaProduct]
-    ) -> None:
+    ) -> list[dict[str, str]]:
         for product in products:
             product.available = False
             product.stock = None
@@ -173,10 +179,18 @@ class AtacadaoCatalogClient:
         ]
         semaphore = asyncio.Semaphore(self.concurrency)
         simulated_pages = await asyncio.gather(
-            *(self._simulation(client, semaphore, batch) for batch in batches)
+            *(self._simulation(client, semaphore, batch) for batch in batches),
+            return_exceptions=True,
         )
+        errors: list[dict[str, str]] = []
         by_id = {product.id: product for product in products}
-        for raw in (item for page in simulated_pages for item in page):
+        valid_pages = []
+        for index, page in enumerate(simulated_pages, start=1):
+            if isinstance(page, BaseException):
+                errors.append(collection_issue(f"price-simulation batch={index}", page))
+            else:
+                valid_pages.append(page)
+        for raw in (item for page in valid_pages for item in page):
             product = by_id.get(str(raw.get("id")))
             if product is None:
                 continue
@@ -189,6 +203,7 @@ class AtacadaoCatalogClient:
                 product.regular_price /= 100
             if product.regular_price is not None and product.sales_price is not None:
                 product.discount = max(0.0, product.regular_price - product.sales_price)
+        return errors
 
     async def collect(self) -> dict[str, Any]:
         owns_client = self.client is None
@@ -216,11 +231,19 @@ class AtacadaoCatalogClient:
             queries.append(("available root", "isAvailablePerSalesChannel_1:1"))
             semaphore = asyncio.Semaphore(self.concurrency)
             results = await asyncio.gather(
-                *(self._category(client, semaphore, fq) for _, fq in queries)
+                *(self._category(client, semaphore, fq) for _, fq in queries),
+                return_exceptions=True,
             )
             merged: dict[str, ArenaProduct] = {}
             category_counts: dict[str, int] = {}
-            for (label, _), (total, raw_products) in zip(queries, results, strict=True):
+            collection_errors: list[dict[str, str]] = []
+            for (label, _), result in zip(queries, results, strict=True):
+                if isinstance(result, BaseException):
+                    collection_errors.append(collection_issue(label, result))
+                    category_counts[label] = 0
+                    continue
+                total, raw_products, errors = result
+                collection_errors.extend(errors)
                 category_counts[label] = total
                 for raw in raw_products:
                     for product in parse_products(raw):
@@ -232,7 +255,8 @@ class AtacadaoCatalogClient:
                         else:
                             merged[product.id] = product
             products = sorted(merged.values(), key=lambda item: (item.name.casefold(), item.id))
-            await self._apply_store_prices(client, products)
+            require_products(products, collection_errors)
+            collection_errors.extend(await self._apply_store_prices(client, products))
             return {
                 "retailer": "Atacadão",
                 "source": SEARCH_URL,
@@ -249,6 +273,7 @@ class AtacadaoCatalogClient:
                 },
                 "product_count": len(products),
                 "products": [asdict(product) for product in products],
+                **collection_metadata(collection_errors),
             }
         finally:
             if owns_client:
