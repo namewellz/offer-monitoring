@@ -11,6 +11,7 @@ x-app-environment: &app-environment
   ASSAI_USERNAME: ${ASSAI_USERNAME:-}
   ASSAI_PASSWORD: ${ASSAI_PASSWORD:-}
   ASSAI_BUNDLE_FILE: /run/secrets/meu_assai_bundle.js
+  TENDA_PROXY_URL: ${TENDA_PROXY_URL:-}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
 services:

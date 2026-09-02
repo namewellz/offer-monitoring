@@ -699,6 +699,38 @@ FROM catalog_runs ORDER BY collected_at DESC LIMIT 20;
 "
 ```
 
+### Tenda bloqueado pelo WAF
+
+Se a coleta do Tenda retornar `HTTP 403` com `x-azion-request-id` (WAF da
+Azion), a rota implementada é um forward proxy autorizado. No Portainer ou no
+`.env.production`, definir:
+
+```text
+TENDA_PROXY_URL=http://USUARIO:SENHA@IP_DO_PROXY:3128
+```
+
+A variável afeta somente o coletor do Tenda. Recomendações do proxy:
+
+- autenticação obrigatória e allowlist de hosts do Tenda (não pode ser proxy aberto);
+- firewall liberando somente o IP da Oracle para a porta do proxy;
+- o trânsito Oracle → proxy é HTTP sem TLS; para validação é aceitável, em
+  produção use VPN/SSH tunnel ou TLS no listener.
+
+Validar manualmente dentro do container:
+
+```bash
+docker exec "$API_CONTAINER" python -c "
+import asyncio
+from app.catalog.tenda import TendaCatalogClient
+catalog = asyncio.run(TendaCatalogClient().collect())
+print('products', catalog['product_count'])
+print('errors', catalog.get('collection_errors'))
+"
+```
+
+- [ ] `TENDA_PROXY_URL` definido no Portainer quando necessário.
+- [ ] Coleta do Tenda validada com o proxy.
+
 Quando a cloud estiver validada, manter a coleta local parada:
 
 ```powershell

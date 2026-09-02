@@ -139,6 +139,10 @@ são preservados no histórico:
 docker compose exec api python -m app.cli tenda-catalog --output /data/catalog/tenda
 ```
 
+Quando o IP de saída do servidor é bloqueado pelo WAF da Azion, a coleta do Tenda pode usar
+um forward proxy autorizado definindo `TENDA_PROXY_URL` (ex.: `http://usuario:senha@host:3128`).
+A variável afeta somente o coletor do Tenda; as demais fontes continuam saindo diretamente.
+
 O São Vicente seleciona a loja `018` (São Vicente Hortolândia) antes de consultar o catálogo
 Demandware. A coleta preserva preços, faixas por quantidade, estoque e disponibilidade da loja:
 

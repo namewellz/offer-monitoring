@@ -305,6 +305,26 @@ Próximas opções, em ordem de segurança:
 Não é recomendável mascarar o erro, tratar 403 como página vazia ou apagar o
 histórico anterior.
 
+### Rota via proxy (2026-09-02)
+
+A opção 2 foi implementada no coletor: a variável `TENDA_PROXY_URL` (vazia por
+padrão) é aplicada somente ao `TendaCatalogClient`. Quando configurada, todas as
+chamadas HTTP do Tenda passam por esse forward proxy; as demais fontes seguem
+saindo diretamente.
+
+Configuração mínima de um forward proxy para essa rota:
+
+- autenticação obrigatória (`Proxy-Authorization`), para não virar proxy aberto;
+- allowlist de hosts de destino (apenas `api.tendaatacado.com.br` e
+  `www.tendaatacado.com.br`);
+- firewall liberando somente o IP da Oracle para a porta do proxy;
+- sem TLS no trânsito Oracle → proxy, o token trafega em Basic/base64 — aceitável
+  só para validação; para produção prefira VPN/SSH tunnel ou TLS no listener.
+
+Validação local (2026-09-02): com `TENDA_PROXY_URL` apontando para o proxy na
+máquina de desenvolvimento, a coleta do Tenda retornou 7.879 produtos e os logs
+do proxy confirmaram os túneis CONNECT para `api.tendaatacado.com.br`.
+
 ## 12. Decisões importantes e porquês
 
 ### Preservar códigos da fonte

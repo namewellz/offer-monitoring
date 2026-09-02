@@ -9,6 +9,7 @@ import httpx
 
 from app.catalog.arena import ArenaProduct, TierPrice
 from app.catalog.resilience import collection_issue, collection_metadata, require_products
+from app.core.config import get_settings
 
 API_URL = "https://api.tendaatacado.com.br/api"
 DEPARTMENTS_URL = f"{API_URL}/public/store/departments"
@@ -121,11 +122,13 @@ class TendaCatalogClient:
         branch_id: str = BRANCH_ID,
         concurrency: int = 12,
         max_pages: int | None = None,
+        proxy_url: str | None = None,
     ):
         self.client = client
         self.branch_id = branch_id
         self.concurrency = concurrency
         self.max_pages = max_pages
+        self.proxy_url = proxy_url
         self._semaphore = asyncio.Semaphore(concurrency)
 
     async def _get_json(
@@ -177,17 +180,27 @@ class TendaCatalogClient:
 
     async def collect(self) -> dict[str, Any]:
         owns_client = self.client is None
-        client = self.client or httpx.AsyncClient(
-            timeout=60,
-            follow_redirects=True,
-            limits=httpx.Limits(max_connections=self.concurrency),
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json; charset=utf-8",
-                "desktop-platform": "true",
-                "User-Agent": "offer-monitoring/0.1",
-            },
-        )
+        client = self.client
+        if owns_client:
+            proxy_url = (
+                self.proxy_url
+                if self.proxy_url is not None
+                else get_settings().tenda_proxy_url
+            )
+            client_kwargs: dict[str, Any] = {
+                "timeout": 60,
+                "follow_redirects": True,
+                "limits": httpx.Limits(max_connections=self.concurrency),
+                "headers": {
+                    "Accept": "application/json",
+                    "Content-Type": "application/json; charset=utf-8",
+                    "desktop-platform": "true",
+                    "User-Agent": "offer-monitoring/0.1",
+                },
+            }
+            if proxy_url:
+                client_kwargs["proxy"] = proxy_url
+            client = httpx.AsyncClient(**client_kwargs)
         try:
             departments = await self._get_json(client, DEPARTMENTS_URL)
             department_products = await asyncio.gather(

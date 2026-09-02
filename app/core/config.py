@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     assai_username: str | None = None
     assai_password: SecretStr | None = None
     assai_bundle_file: Path = Path("/run/secrets/meu_assai_bundle.js")
+    tenda_proxy_url: str | None = None
     scheduler_timezone: str = "America/Sao_Paulo"
     http_timeout_seconds: int = 30
     http_max_retries: int = 3
