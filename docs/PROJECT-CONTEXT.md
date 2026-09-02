@@ -30,7 +30,7 @@ Há dois fluxos relacionados, mas independentes.
 
 ### 2.1 Catálogos estruturados
 
-É o fluxo usado pelo painel `/catalog` e pelas oito fontes atuais. Os coletores
+É o fluxo usado pelo painel `/catalog` e pelas nove fontes atuais. Os coletores
 consultam APIs ou endpoints dos e-commerces, normalizam os campos e persistem
 uma fotografia datada dos produtos e preços.
 
@@ -68,6 +68,7 @@ esperado nessa configuração.
 | Assaí | APIs autenticadas do Meu Assaí | Assaí Hortolândia, store 175/code 173 | EAN, product ID e ID interno | mantém varejo, atacado e preço do app |
 | Tenda | API pública do e-commerce | CT39 Tenda Hortolândia, branch 46, CEP `13184-222` | barcode/EAN e SKU | atualmente bloqueada pelo WAF para o IP da Oracle |
 | São Vicente | Demandware com seleção de loja | loja 018 São Vicente Hortolândia | ID interno da fonte; sem EAN no payload atual | seleciona a loja antes de percorrer departamentos |
+| Max Atacadista | API pública do Grupo Muffato | Max Atacadista Campinas, `cod_store=141`, referência regional para o CEP `13184-222` | EAN e código `bismt` | não há filial em Hortolândia no diretório público; a cidade real é preservada |
 
 EAN/GTIN é armazenado quando a fonte o fornece e ele passa pela validação
 numérica. A ausência de EAN não impede a coleta.

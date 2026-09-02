@@ -18,6 +18,7 @@ CATALOG_RETAILERS = (
     "assai",
     "tenda",
     "sao-vicente",
+    "max-atacadista",
 )
 
 

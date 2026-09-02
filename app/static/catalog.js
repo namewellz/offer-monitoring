@@ -50,7 +50,8 @@ let statusTimer;
 const retailerNames = {
   'arena-atacado': 'Arena Atacado', goodbom: 'GoodBom', atacadao: 'Atacadão',
   savegnago: 'Savegnago', davitta: 'Davitta', assai: 'Assaí',
-  tenda: 'Tenda Atacado', 'sao-vicente': 'São Vicente'
+  tenda: 'Tenda Atacado', 'sao-vicente': 'São Vicente',
+  'max-atacadista': 'Max Atacadista'
 };
 const statusNames = {
   queued: 'Na fila', started: 'Em andamento', deferred: 'Aguardando', scheduled: 'Agendada',

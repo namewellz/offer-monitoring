@@ -869,7 +869,9 @@ th{{background:#eef7f2;white-space:nowrap}}th.sortable{{cursor:pointer;user-sele
 <option value="savegnago" {'selected' if retailer == 'savegnago' else ''}>Savegnago</option>
 <option value="davitta" {'selected' if retailer == 'davitta' else ''}>Davitta</option>
 <option value="assai" {'selected' if retailer == 'assai' else ''}>Assaí</option>
-<option value="tenda" {'selected' if retailer == 'tenda' else ''}>Tenda Atacado</option></select>
+<option value="tenda" {'selected' if retailer == 'tenda' else ''}>Tenda Atacado</option>
+<option value="sao-vicente" {'selected' if retailer == 'sao-vicente' else ''}>São Vicente</option>
+<option value="max-atacadista" {'selected' if retailer == 'max-atacadista' else ''}>Max Atacadista</option></select>
 <select name="direction"><option value="all">Todas as variações</option>
 <option value="up" {'selected' if direction == 'up' else ''}>Aumentos</option>
 <option value="down" {'selected' if direction == 'down' else ''}>Reduções</option></select>

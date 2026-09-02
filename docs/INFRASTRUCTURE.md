@@ -293,7 +293,7 @@ SCHEDULER_TIMEZONE=America/Sao_Paulo
 O scheduler apenas enfileira. O worker executa os jobs e consulta as fontes.
 Todos usam Redis e a fila `flyers`.
 
-Com um worker, as oito fontes são executadas sequencialmente. No ciclo das
+Com um worker, as nove fontes são executadas sequencialmente. No ciclo das
 22:00 de 2026-09-01, sete fontes finalizaram com sucesso e o Tenda registrou
 403 isoladamente; São Vicente foi executado depois, confirmando que uma falha de
 fonte não bloqueia o restante da fila.

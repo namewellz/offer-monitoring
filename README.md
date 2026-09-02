@@ -79,7 +79,7 @@ disponibilidade sao confirmados pela simulacao de compra do CEP `02170-901`, can
 ## Coletas agendadas e variacao de preco
 
 O scheduler envia as coletas estruturadas de Arena, GoodBom, Atacadao, Savegnago, Davitta,
-Assaí, Tenda Atacado e São Vicente para a fila tres vezes
+Assaí, Tenda Atacado, São Vicente e Max Atacadista para a fila tres vezes
 ao dia, por padrao as `06:00`, `14:00` e `22:00` no fuso `America/Sao_Paulo`. A configuracao
 fica nas variaveis `CATALOG_COLLECTION_ENABLED`, `CATALOG_COLLECTION_CRON` e
 `SCHEDULER_TIMEZONE`.
@@ -148,6 +148,15 @@ Demandware. A coleta preserva preços, faixas por quantidade, estoque e disponib
 
 ```bash
 docker compose exec api python -m app.cli saovicente-catalog --output /data/catalog/sao-vicente
+```
+
+O Max Atacadista usa o catálogo público do Grupo Muffato. Como o diretório público não possui
+uma unidade em Hortolândia, a coleta utiliza a referência regional `Max Atacadista Campinas`
+(`cod_store=141`, ID 606) e registra Campinas como a cidade da filial, sem atribuir os preços a
+Hortolândia. O payload fornece código interno `bismt`, EAN, estoque e `preco1` quando disponível:
+
+```bash
+docker compose exec api python -m app.cli max-atacadista-catalog --output /data/catalog/max-atacadista
 ```
 
 A tela `/catalog` permite iniciar uma atualização manual de qualquer supermercado. Solicitações

@@ -9,12 +9,14 @@ from app.catalog.assai import AssaiCatalogClient
 from app.catalog.atacadao import AtacadaoCatalogClient
 from app.catalog.davita import DavitaCatalogClient
 from app.catalog.goodbom import GoodBomCatalogClient
+from app.catalog.maxatacadista import MaxAtacadistaCatalogClient
 from app.catalog.persistence import (
     persist_arena_catalog,
     persist_assai_catalog,
     persist_atacadao_catalog,
     persist_davita_catalog,
     persist_goodbom_catalog,
+    persist_maxatacadista_catalog,
     persist_saovicente_catalog,
     persist_savegnago_catalog,
     persist_tenda_catalog,
@@ -67,6 +69,11 @@ CATALOG_COLLECTORS = {
     "assai": (AssaiCatalogClient, persist_assai_catalog, "assai"),
     "tenda": (TendaCatalogClient, persist_tenda_catalog, "tenda"),
     "sao-vicente": (SaoVicenteCatalogClient, persist_saovicente_catalog, "sao-vicente"),
+    "max-atacadista": (
+        MaxAtacadistaCatalogClient,
+        persist_maxatacadista_catalog,
+        "max-atacadista",
+    ),
 }
 
 

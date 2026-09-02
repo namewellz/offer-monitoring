@@ -1,4 +1,8 @@
-from app.scheduler import enqueue_catalogs, enqueue_sources
+from app.scheduler import CATALOG_RETAILERS, enqueue_catalogs, enqueue_sources
+
+
+def test_max_atacadista_is_scheduled() -> None:
+    assert "max-atacadista" in CATALOG_RETAILERS
 
 
 def test_one_source_error_does_not_stop_others() -> None:

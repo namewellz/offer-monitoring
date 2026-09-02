@@ -31,6 +31,7 @@ def test_catalog_dashboard_has_mobile_and_manual_update_controls() -> None:
     assert 'id="collection-history"' in html
     assert "Forçar atualização de todas as fontes" in html
     assert 'value="sao-vicente"' in html
+    assert 'value="max-atacadista"' in html
     assert "/static/catalog.css?v=" in html
     assert "/static/catalog.js?v=" in html
     assert "São Vicente Hortolândia" in html

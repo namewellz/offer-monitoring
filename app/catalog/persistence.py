@@ -427,3 +427,35 @@ def persist_saovicente_catalog(db: Session, catalog: dict[str, Any]) -> CatalogR
         provider_type="saovicente-demandware-api",
         store=store,
     )
+
+
+def persist_maxatacadista_catalog(db: Session, catalog: dict[str, Any]) -> CatalogRun:
+    retailer = db.scalar(select(Retailer).where(Retailer.slug == "max-atacadista"))
+    if retailer is None:
+        retailer = Retailer(name="Max Atacadista", slug="max-atacadista")
+        db.add(retailer)
+        db.flush()
+    store_data = catalog["store"]
+    store = db.scalar(
+        select(Store).where(
+            Store.retailer_id == retailer.id,
+            Store.name == store_data["name"],
+        )
+    )
+    if store is None:
+        store = Store(
+            retailer_id=retailer.id,
+            name=store_data["name"],
+            city=store_data["city"],
+            state=store_data["state"],
+        )
+        db.add(store)
+        db.flush()
+    return _persist_catalog(
+        db,
+        catalog,
+        retailer_name="Max Atacadista",
+        retailer_slug="max-atacadista",
+        provider_type="max-public-api",
+        store=store,
+    )

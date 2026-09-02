@@ -10,12 +10,14 @@ from app.catalog.assai import AssaiCatalogClient
 from app.catalog.atacadao import AtacadaoCatalogClient
 from app.catalog.davita import DavitaCatalogClient
 from app.catalog.goodbom import GoodBomCatalogClient
+from app.catalog.maxatacadista import MaxAtacadistaCatalogClient
 from app.catalog.persistence import (
     persist_arena_catalog,
     persist_assai_catalog,
     persist_atacadao_catalog,
     persist_davita_catalog,
     persist_goodbom_catalog,
+    persist_maxatacadista_catalog,
     persist_saovicente_catalog,
     persist_savegnago_catalog,
     persist_tenda_catalog,
@@ -88,6 +90,8 @@ def main() -> None:
     tenda_catalog.add_argument("--output", default="artifacts/tenda-catalog")
     saovicente_catalog = commands.add_parser("saovicente-catalog")
     saovicente_catalog.add_argument("--output", default="artifacts/saovicente-catalog")
+    max_catalog = commands.add_parser("max-atacadista-catalog")
+    max_catalog.add_argument("--output", default="artifacts/max-atacadista-catalog")
     args = parser.parse_args()
     if args.command == "seed":
         seed()
@@ -174,6 +178,18 @@ def main() -> None:
         with SessionLocal() as db:
             run = persist_saovicente_catalog(db, catalog)
         print(f"Collected {catalog['product_count']} unique São Vicente products")
+        print(f"Persisted catalog run {run.id} at {run.collected_at.isoformat()}")
+        print(json_path)
+        print(csv_path)
+        return
+    if args.command == "max-atacadista-catalog":
+        catalog = asyncio.run(MaxAtacadistaCatalogClient().collect())
+        json_path, csv_path = write_catalog(
+            catalog, Path(args.output), prefix="max-atacadista"
+        )
+        with SessionLocal() as db:
+            run = persist_maxatacadista_catalog(db, catalog)
+        print(f"Collected {catalog['product_count']} unique Max Atacadista products")
         print(f"Persisted catalog run {run.id} at {run.collected_at.isoformat()}")
         print(json_path)
         print(csv_path)

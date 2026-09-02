@@ -16,6 +16,7 @@ RETAILERS = (
     ("assai", "Assaí"),
     ("tenda", "Tenda Atacado"),
     ("sao-vicente", "São Vicente"),
+    ("max-atacadista", "Max Atacadista"),
 )
 
 
@@ -242,6 +243,6 @@ def render_catalog_dashboard(
 <p>Status e erros das coletas recentes</p></div><button class="history-refresh" id="history-refresh" type="button" aria-label="Atualizar histórico">↻</button></div>
 <div id="collection-history" class="collection-history" aria-live="polite"><p class="muted">Carregando histórico…</p></div></section>
 </aside></section></main>
-<script src="/static/catalog.js?v=20260829-4" defer></script></body></html>""".replace(
+<script src="/static/catalog.js?v=20260902-1" defer></script></body></html>""".replace(
         f"{total_products:,}", f"{total_products:,}".replace(",", ".")
     )
