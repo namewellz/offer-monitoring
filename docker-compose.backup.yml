@@ -1,0 +1,36 @@
+services:
+  backup:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB:-flyer}
+      PGUSER: ${POSTGRES_USER:-flyer}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    command:
+      - sh
+      - -eu
+      - -c
+      - |
+        while true; do
+          stamp=$$(date +%Y%m%d-%H%M%S)
+          target=/backups/automatic/$$stamp
+          mkdir -p "$$target"
+          echo "Starting backup $$stamp"
+          pg_dump -Fc -f "$$target/offer-monitoring.dump"
+          tar -czf "$$target/flyer-data.tar.gz" -C /data .
+          cd "$$target"
+          sha256sum offer-monitoring.dump flyer-data.tar.gz > SHA256SUMS
+          cd /
+          find /backups/automatic -mindepth 1 -maxdepth 1 -type d -mtime +13 -exec rm -rf -- {} +
+          echo "Completed backup $$stamp"
+          sleep 86400
+        done
+    volumes:
+      - /srv/offer-monitoring/backups:/backups
+      - /srv/offer-monitoring/flyer-data:/data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
