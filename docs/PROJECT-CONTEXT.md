@@ -316,14 +316,26 @@ Configuração mínima de um forward proxy para essa rota:
 
 - autenticação obrigatória (`Proxy-Authorization`), para não virar proxy aberto;
 - allowlist de hosts de destino (apenas `api.tendaatacado.com.br` e
-  `www.tendaatacado.com.br`);
-- firewall liberando somente o IP da Oracle para a porta do proxy;
-- sem TLS no trânsito Oracle → proxy, o token trafega em Basic/base64 — aceitável
-  só para validação; para produção prefira VPN/SSH tunnel ou TLS no listener.
+  `www.tendaatacado.com.br`).
+
+Transporte adotado em produção: **Tailscale**. O proxy roda na máquina de
+desenvolvimento (nó `desktop-0lfqfru`, IP tailnet `100.103.174.68`) e a Oracle
+(`100.107.197.65`) o alcança pela tailnet em `http://<token>@100.103.174.68:3128`.
+Não há exposição pública nem regra de firewall externa; o tráfego Oracle → proxy
+é criptografado pela tailnet.
 
 Validação local (2026-09-02): com `TENDA_PROXY_URL` apontando para o proxy na
 máquina de desenvolvimento, a coleta do Tenda retornou 7.879 produtos e os logs
 do proxy confirmaram os túneis CONNECT para `api.tendaatacado.com.br`.
+
+Ativação em produção (2026-09-02): `TENDA_PROXY_URL` foi adicionado ao
+`.env.production` da Oracle apontando para o IP tailnet do proxy, e a stack foi
+recriada. Coleta confirmada via worker sem override: 7.932 produtos e
+`catalog_run` com sucesso.
+
+Dependência operacional: a coleta do Tenda depende da máquina que roda o proxy
+estar ligada e conectada à tailnet. Se ela ficar indisponível, o Tenda volta ao
+403 e o histórico/falha permanecem visíveis.
 
 ## 12. Decisões importantes e porquês
 
