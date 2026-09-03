@@ -73,6 +73,10 @@ table{{min-width:900px}}
 <a class="brand" href="/catalog"><span class="brand-mark">OM</span><span>Offer Monitor</span></a>
 <span class="live"><i></i> Açougue</span></div></header>
 <main class="shell">
+<nav class="view-tabs" aria-label="Visões do Açougue">
+<a class="active" href="/catalog/cuts">Comparativo R$/kg</a>
+<a href="/catalog/butcher-review">Revisão de classificação</a>
+</nav>
 <section class="hero"><div><span class="eyebrow">Comparação determinística</span>
 <h1>Açougue — preço por kg</h1>
 <p>{result['total_groups']} cortes agrupados a partir de {result['total_items']} itens. Preços por kg; o menor de cada linha está destacado. Passe o mouse para ver o nome original.</p></div></section>

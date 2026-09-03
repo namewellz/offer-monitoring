@@ -56,6 +56,8 @@ from app.db.models import (
 from app.db.session import get_db
 from app.enrichment.butcher import butcher_comparison
 from app.enrichment.dashboard import render_butcher_dashboard
+from app.enrichment.review import butcher_review
+from app.enrichment.review_dashboard import render_butcher_review
 from app.extraction.ollama_client import OllamaVisionClient
 from app.jobs.queue import (
     catalog_collection_job,
@@ -775,6 +777,18 @@ def butcher_json(limit: int = 300, db: Session = Depends(get_db)):
         "total_groups": result["total_groups"],
         "groups": groups,
     }
+
+
+@app.get("/catalog/butcher-review", response_class=HTMLResponse, include_in_schema=False)
+def butcher_review_page(db: Session = Depends(get_db)):
+    """Açougue classification review screen (server-rendered, live from v2)."""
+    return render_butcher_review(butcher_review(db))
+
+
+@app.get("/catalog/butcher-review.json")
+def butcher_review_json(db: Session = Depends(get_db)):
+    """JSON payload behind the review screen (same shape as the exported file)."""
+    return butcher_review(db)
 
 
 @app.post("/catalog/collections", status_code=202)
