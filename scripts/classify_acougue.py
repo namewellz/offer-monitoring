@@ -24,6 +24,7 @@ import json
 import re
 import sys
 import time
+import uuid
 from collections import Counter
 from typing import Any
 
@@ -104,7 +105,7 @@ def main() -> None:
     accepted: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
     rows: list[dict[str, Any]] = []
-    batch_id = time.strftime("b-%Y%m%d-%H%M%S")
+    batch_id = str(uuid.uuid4())
     total_tokens = 0
     start = time.perf_counter()
     failed_batches: list[int] = []

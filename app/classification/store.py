@@ -31,6 +31,10 @@ def upsert_decisions(
             )
         )
         if existing is None:
+            try:
+                batch_uuid = UUID(row["batch_id"]) if row.get("batch_id") else None
+            except (ValueError, AttributeError, TypeError):
+                batch_uuid = None
             db.add(
                 LlmClassification(
                     source_product_id=product_id,
@@ -39,9 +43,7 @@ def upsert_decisions(
                     decision=row["decision"],
                     reason=row.get("reason"),
                     model=row["model"],
-                    batch_id=(
-                        UUID(row["batch_id"]) if row.get("batch_id") else None
-                    ),
+                    batch_id=batch_uuid,
                     prompt_version=row.get("prompt_version", "1"),
                 )
             )
