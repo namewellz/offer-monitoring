@@ -132,6 +132,8 @@ def _compute(db: Session, use_llm: bool) -> tuple[int, list[dict[str, Any]], dic
         row = rows.setdefault(
             key,
             {
+                "department": "Açougue",
+                "unit": "kg",
                 "label": _FORM_DISPLAY[form],
                 "category": category,
                 "form": form,
