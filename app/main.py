@@ -54,6 +54,8 @@ from app.db.models import (
     Store,
 )
 from app.db.session import get_db
+from app.enrichment.butcher import butcher_comparison
+from app.enrichment.dashboard import render_butcher_dashboard
 from app.extraction.ollama_client import OllamaVisionClient
 from app.jobs.queue import (
     catalog_collection_job,
@@ -736,6 +738,43 @@ def v2_catalog_departments(db: Session = Depends(get_db)):
         {"name": department, "product_count": counts.get(department, 0)}
         for department in CANONICAL_DEPARTMENTS
     ]
+
+
+@app.get("/catalog/cuts", response_class=HTMLResponse, include_in_schema=False)
+def butcher_dashboard(limit: int = 300, db: Session = Depends(get_db)):
+    return render_butcher_dashboard(butcher_comparison(db, limit=min(max(limit, 1), 2000)))
+
+
+@app.get("/catalog/cuts.json")
+def butcher_json(limit: int = 300, db: Session = Depends(get_db)):
+    result = butcher_comparison(db, limit=min(max(limit, 1), 2000))
+    groups = []
+    for group in result["groups"]:
+        groups.append(
+            {
+                "label": group["label"],
+                "species": group["species"],
+                "cut": group["cut"],
+                "bone_state": group["bone_state"],
+                "conservation": group["conservation"],
+                "presentation": group["presentation"],
+                "seasoned": group["seasoned"],
+                "sources": {
+                    slug: {
+                        "price_kg": float(info["price_kg"])
+                        if info.get("price_kg") is not None
+                        else None,
+                        "sample": info.get("sample"),
+                    }
+                    for slug, info in group["sources"].items()
+                },
+            }
+        )
+    return {
+        "total_items": result["total_items"],
+        "total_groups": result["total_groups"],
+        "groups": groups,
+    }
 
 
 @app.post("/catalog/collections", status_code=202)

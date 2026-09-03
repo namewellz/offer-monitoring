@@ -21,6 +21,8 @@ outputs/
 artifacts/sv_grid_sample.json
 artifacts/sv_pdp.html
 artifacts/sv_pdp_intenso.html
+artifacts/acougue_names.csv
+artifacts/acougue_report.txt
 
 .idea/
 .vscode/
