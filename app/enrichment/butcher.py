@@ -145,10 +145,13 @@ def _compute(db: Session, use_llm: bool) -> tuple[int, list[dict[str, Any]], dic
         price_kg = item.price_kg
         if price_kg is None:
             continue
-        entry = row["sources"].setdefault(item.retailer, {"price_kg": None, "sample": None})
+        entry = row["sources"].setdefault(
+            item.retailer, {"price_kg": None, "sample": None, "store": None}
+        )
         if entry["price_kg"] is None or price_kg < entry["price_kg"]:
             entry["price_kg"] = price_kg
             entry["sample"] = item.raw_name
+            entry["store"] = item.store
 
     groups = list(rows.values())
     groups = [g for g in groups if any(s["price_kg"] is not None for s in g["sources"].values())]

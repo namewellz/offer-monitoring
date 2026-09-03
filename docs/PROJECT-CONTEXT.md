@@ -7,6 +7,11 @@ as decisões tomadas e os motivos por trás delas. Ele deve ser lido junto com
 [`INFRASTRUCTURE.md`](INFRASTRUCTURE.md) e
 [`DEPLOY-ORACLE.md`](DEPLOY-ORACLE.md).
 
+O modelo de banco atualmente implementado está em
+[`DATABASE-ERD.md`](DATABASE-ERD.md). A proposta completa de evolução do coletor,
+histórico por mudança e enriquecimento canônico está em
+[`CATALOG-COLLECTION-AND-ENRICHMENT.md`](CATALOG-COLLECTION-AND-ENRICHMENT.md).
+
 ## 1. Objetivo
 
 O Offer Monitoring centraliza catálogos e ofertas de supermercados para:

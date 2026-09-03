@@ -159,6 +159,7 @@ td.na{{color:#b0b8c0}}td.best{{background:#e3f6e9;font-weight:700;color:#067647}
 <a class="active" href="/catalog/cuts">Comparativo R$/kg</a>
 <a href="/catalog/butcher-review">Revisão de classificação</a>
 <a href="/catalog/categories">Categorias</a>
+<a href="/shopping-lists">Lista</a>
 </nav>
 <section class="hero"><div><span class="eyebrow">Aferição de preços · LLM</span>
 <h1>Açougue — preço por kg</h1>

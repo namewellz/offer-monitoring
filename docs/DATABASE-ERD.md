@@ -6,6 +6,10 @@ Este documento representa o banco **como ele está hoje**, a partir dos modelos
 SQLAlchemy em `app/db/models.py` e das migrações Alembic até a revisão atual.
 As ideias da seção "Evoluções candidatas" ainda não fazem parte do schema.
 
+O desenho de destino para múltiplas filiais, histórico por mudança e resolução
+canônica está documentado separadamente em
+[`CATALOG-COLLECTION-AND-ENRICHMENT.md`](CATALOG-COLLECTION-AND-ENRICHMENT.md).
+
 Versão visual e editável no FigJam:
 [abrir o ERD atual no FigJam](https://www.figma.com/board/VYIpVWtmq7wVqyTysvPsyF?utm_source=other&utm_content=edit_in_figjam&oai_id=v1%2Fp3BInL4PT8r6bdkOjd7wM7FSUpB2wT0lwf5HemhmqdFo5XqYZJkTKy&request_id=40f924f5-b80c-40a0-97f2-04869d86e1f5).
 

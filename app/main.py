@@ -3,8 +3,8 @@ from datetime import UTC, datetime
 from html import escape
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from redis import Redis
 from sqlalchemy import func, or_, select, text
@@ -76,6 +76,8 @@ from app.jobs.queue import (
     recent_catalog_collection_jobs,
 )
 from app.jobs.tasks import CATALOG_COLLECTORS
+from app.shopping import store as shopping_store
+from app.shopping.pages import render_builder, render_index
 
 configure_logging()
 
@@ -777,6 +779,7 @@ def butcher_json(limit: int = 300, all: int = 0, db: Session = Depends(get_db)):
                         if info.get("price_kg") is not None
                         else None,
                         "sample": info.get("sample"),
+                        "store": info.get("store"),
                     }
                     for slug, info in group["sources"].items()
                 },
@@ -839,6 +842,84 @@ def categories_normalize(db: Session = Depends(get_db)):
         "changed": result["changed"],
         "canonicals_after": len(distinct_canonicals(db)),
     }
+
+
+# --- Lista de compras ---------------------------------------------------------
+
+def _shopping_rows(db: Session) -> list:
+    return butcher_comparison(db, limit=2000, use_llm=True)["groups"]
+
+
+@app.get("/shopping-lists", response_class=HTMLResponse, include_in_schema=False)
+def shopping_index(db: Session = Depends(get_db)):
+    return render_index(shopping_store.list_lists(db))
+
+
+@app.post("/shopping-lists", include_in_schema=False)
+async def shopping_create(request: Request, db: Session = Depends(get_db)):
+    import urllib.parse
+
+    raw = (await request.body()).decode()
+    form = urllib.parse.parse_qs(raw)
+    name = (form.get("name") or ["Nova lista"])[0].strip()
+    obj = shopping_store.create_list(db, name)
+    return RedirectResponse(url=f"/shopping-lists/{obj.id}", status_code=303)
+
+
+@app.post("/shopping-lists/{list_id}/delete", include_in_schema=False)
+def shopping_delete(list_id: int, db: Session = Depends(get_db)):
+    shopping_store.delete_list(db, list_id)
+    return RedirectResponse(url="/shopping-lists", status_code=303)
+
+
+@app.get("/shopping-lists/{list_id}", response_class=HTMLResponse, include_in_schema=False)
+def shopping_builder(list_id: int, db: Session = Depends(get_db)):
+    obj = shopping_store.get_list(db, list_id)
+    if obj is None:
+        raise HTTPException(404, "Lista não encontrada")
+    return render_builder(
+        obj.name,
+        obj.id,
+        _shopping_rows(db),
+        shopping_store.items(db, obj.id),
+    )
+
+
+@app.post("/shopping-lists/{list_id}/items")
+def shopping_add_item(
+    list_id: int, payload: dict, db: Session = Depends(get_db)
+):
+    obj = shopping_store.get_list(db, list_id)
+    if obj is None:
+        raise HTTPException(404, "Lista não encontrada")
+    return shopping_store.add_item(
+        db,
+        list_id,
+        category=str(payload.get("category") or ""),
+        form=str(payload.get("form") or ""),
+        retailer=payload.get("retailer"),
+        qty=payload.get("qty", 1),
+    )
+
+
+@app.post("/shopping-lists/items/{item_id}")
+def shopping_update_item(item_id: int, payload: dict, db: Session = Depends(get_db)):
+    updated = shopping_store.update_item(
+        db,
+        item_id,
+        retailer=payload.get("retailer"),
+        qty=payload.get("qty"),
+        note=payload.get("note"),
+    )
+    if updated is None:
+        raise HTTPException(404, "Item não encontrado")
+    return updated
+
+
+@app.post("/shopping-lists/items/{item_id}/delete")
+def shopping_remove_item(item_id: int, db: Session = Depends(get_db)):
+    shopping_store.remove_item(db, item_id)
+    return {"ok": True}
 
 
 @app.post("/catalog/collections", status_code=202)

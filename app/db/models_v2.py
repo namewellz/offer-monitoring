@@ -457,3 +457,34 @@ class LlmCategoryLabel(_BigIntId, Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class ShoppingList(_BigIntId, Base):
+    __tablename__ = "shopping_lists"
+    name: Mapped[str] = mapped_column(String(160))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ShoppingListItem(_BigIntId, Base):
+    """One comparable line (category + form) chosen for a shopping list.
+
+    ``retailer_slug`` is the source where the user intends to buy it (defaults to
+    the cheapest). Quantity is in kg (prices are per kg).
+    """
+
+    __tablename__ = "shopping_list_items"
+    list_id: Mapped[int] = mapped_column(ForeignKey("shopping_lists.id"), index=True)
+    category: Mapped[str] = mapped_column(String(160))
+    form: Mapped[str] = mapped_column(String(40))
+    retailer_slug: Mapped[str | None] = mapped_column(String(80))
+    qty: Mapped[Decimal] = mapped_column(Numeric(10, 3), default=Decimal("1"))
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    __table_args__ = (UniqueConstraint("list_id", "category", "form"),)

@@ -61,6 +61,7 @@ input.canon{{width:min(320px,100%);padding:8px 10px;border:1px solid var(--line)
 <a href="/catalog/cuts">Comparativo R$/kg</a>
 <a href="/catalog/butcher-review">Revisão de classificação</a>
 <a class="active" href="/catalog/categories">Categorias</a>
+<a href="/shopping-lists">Lista</a>
 </nav>
 <section class="hero"><div><span class="eyebrow">Vocabulário canônico</span>
 <h1>Categorias canônicas</h1>

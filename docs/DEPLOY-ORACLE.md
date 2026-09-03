@@ -49,9 +49,9 @@ Dados persistentes:
 
 - [x] Confirmar que o projeto funciona localmente.
 - [x] Confirmar que PostgreSQL e Redis estão healthy.
-- [x] Confirmar que `.env` está ignorado.
-- [x] Confirmar que backups e arquivos secretos não serão enviados ao GitHub.
-- [x] Adicionar as exclusões abaixo ao `.gitignore`, se ainda não existirem.
+- [ ] Confirmar que `.env` está ignorado.
+- [ ] Confirmar que backups e arquivos secretos não serão enviados ao GitHub.
+- [ ] Adicionar as exclusões abaixo ao `.gitignore`, se ainda não existirem.
 
 ```gitignore
 .env
@@ -85,8 +85,8 @@ git diff --cached --name-only |
   Select-String -Pattern '\.env$|dotenv|hermes|bundle|dump|tar\.gz|backup'
 ```
 
-- [x] A busca acima não apresenta nenhum segredo ou backup.
-- [x] Nenhum token ou senha está dentro de arquivos versionados.
+- [ ] A busca acima não apresenta nenhum segredo ou backup.
+- [ ] Nenhum token ou senha está dentro de arquivos versionados.
 
 ## 2. Criar e enviar o repositório ao GitHub
 
@@ -174,9 +174,9 @@ git push
 
 - [x] Workflow finalizou verde em **GitHub → Actions**.
 - [x] Package apareceu em **GitHub → Packages**.
-- [x] Tag `latest` foi publicada.
+- [ ] Tag `latest` foi publicada.
 - [x] Tag `sha-<commit>` foi publicada.
-- [x] Manifesto contém `linux/amd64` e `linux/arm64`.
+- [ ] Manifesto contém `linux/amd64` e `linux/arm64`.
 
 Se possível, tornar somente o package público. Para package privado, cadastrar
 um token com `read:packages` no Portainer e autenticar o Docker usado pelo
@@ -282,9 +282,9 @@ Valor: IP_PUBLICO_DA_ORACLE
 Não criar `AAAA` sem IPv6 funcional.
 
 - [ ] Porta 22 restrita ao IP administrativo.
-- [x] Portas 80 e 443 abertas.
-- [x] Portas internas continuam fechadas.
-- [x] DNS aponta para a Oracle.
+- [ ] Portas 80 e 443 abertas.
+- [ ] Portas internas continuam fechadas.
+- [ ] DNS aponta para a Oracle.
 
 ## 6. Segredos dos coletores
 
@@ -354,12 +354,12 @@ No Portainer:
 7. Cadastrar as variáveis sem colocá-las no Git.
 8. Fazer o primeiro deploy com coletas desabilitadas.
 
-- [x] Stack criada.
-- [x] Imagem GHCR configurada.
-- [x] PostgreSQL healthy.
-- [x] Redis healthy.
-- [x] API, scheduler e worker criados.
-- [x] Coletas automáticas ainda desabilitadas.
+- [ ] Stack criada.
+- [ ] Imagem GHCR configurada.
+- [ ] PostgreSQL healthy.
+- [ ] Redis healthy.
+- [ ] API, scheduler e worker criados.
+- [ ] Coletas automáticas ainda desabilitadas.
 
 ## 8. Watchtower
 
@@ -387,10 +387,10 @@ docker ps --format 'table {{.Names}}\t{{.Image}}' | grep -i watchtower
 docker logs --tail 100 NOME_DO_WATCHTOWER
 ```
 
-- [x] Apenas um Watchtower global está ativo.
-- [x] Somente serviços da aplicação possuem a label.
-- [x] `WATCHTOWER_CLEANUP=true` está configurado.
-- [x] Pull de imagem GHCR funciona no servidor.
+- [ ] Apenas um Watchtower global está ativo.
+- [ ] Somente serviços da aplicação possuem a label.
+- [ ] `WATCHTOWER_CLEANUP=true` está configurado.
+- [ ] Pull de imagem GHCR funciona no servidor.
 
 ## 9. Backup final do ambiente local
 
@@ -474,12 +474,12 @@ Get-Item (Join-Path $backupDir "flyer-data.tar.gz")
 Get-FileHash (Join-Path $backupDir "flyer-data.tar.gz") -Algorithm SHA256
 ```
 
-- [x] API, scheduler e worker foram parados.
-- [x] Dump foi gerado em formato customizado.
-- [x] `pg_restore --list` conseguiu ler o dump.
-- [x] `/data` foi compactado.
-- [x] SHA-256 dos dois arquivos foi registrado.
-- [x] Contagens locais foram salvas.
+- [ ] API, scheduler e worker foram parados.
+- [ ] Dump foi gerado em formato customizado.
+- [ ] `pg_restore --list` conseguiu ler o dump.
+- [ ] `/data` foi compactado.
+- [ ] SHA-256 dos dois arquivos foi registrado.
+- [ ] Contagens locais foram salvas.
 
 ## 10. Transferir o backup
 
@@ -502,9 +502,9 @@ sha256sum /srv/offer-monitoring/migration/flyer-data.tar.gz
 tar -tzf /srv/offer-monitoring/migration/flyer-data.tar.gz | head -50
 ```
 
-- [x] Arquivos transferidos.
-- [x] Hashes local e cloud são idênticos.
-- [x] Arquivo `/data` pode ser listado.
+- [ ] Arquivos transferidos.
+- [ ] Hashes local e cloud são idênticos.
+- [ ] Arquivo `/data` pode ser listado.
 
 ## 11. Restaurar o PostgreSQL
 
@@ -559,10 +559,10 @@ UNION ALL SELECT 'catalog_price_observations', COUNT(*) FROM catalog_price_obser
 "
 ```
 
-- [x] Banco cloud recriado.
-- [x] Restore terminou sem erro.
-- [x] Alembic possui a versão esperada.
-- [x] Contagens são iguais às locais.
+- [ ] Banco cloud recriado.
+- [ ] Restore terminou sem erro.
+- [ ] Alembic possui a versão esperada.
+- [ ] Contagens são iguais às locais.
 
 ## 12. Restaurar `/data`
 
@@ -575,9 +575,9 @@ du -sh /srv/offer-monitoring/flyer-data
 find /srv/offer-monitoring/flyer-data -type f | head -30
 ```
 
-- [x] Arquivos restaurados.
-- [x] Aplicação consegue ler `/data`.
-- [x] Imagens históricas carregam.
+- [ ] Arquivos restaurados.
+- [ ] Aplicação consegue ler `/data`.
+- [ ] Imagens históricas carregam.
 
 ## 13. Iniciar e validar a aplicação
 
@@ -608,13 +608,13 @@ Esperado, sem Ollama:
 
 `ollama=false` é aceitável quando `DISCOVERY_ENABLED=false`.
 
-- [x] API inicia sem erro.
-- [x] Banco e Redis aparecem `true`.
-- [x] Histórico aparece no painel.
-- [x] Categorias aparecem.
-- [x] Tenda e São Vicente aparecem.
-- [x] Abas Todos, Em oferta e Variações funcionam.
-- [x] Atualização manual está disponível.
+- [ ] API inicia sem erro.
+- [ ] Banco e Redis aparecem `true`.
+- [ ] Histórico aparece no painel.
+- [ ] Categorias aparecem.
+- [ ] Tenda e São Vicente aparecem.
+- [ ] Abas Todos, Em oferta e Variações funcionam.
+- [ ] Atualização manual está disponível.
 
 ## 14. Configurar o Caddy
 
@@ -671,10 +671,10 @@ curl.exe -I https://ofertas.seudominio.com/
 curl.exe https://ofertas.seudominio.com/health
 ```
 
-- [x] Certificado HTTPS emitido.
-- [x] HTTP redireciona para HTTPS.
-- [x] `/health` responde pelo domínio.
-- [x] Painel abre no desktop.
+- [ ] Certificado HTTPS emitido.
+- [ ] HTTP redireciona para HTTPS.
+- [ ] `/health` responde pelo domínio.
+- [ ] Painel abre no desktop.
 - [ ] Painel funciona no celular.
 
 ## 15. Testar coleta manual e efetuar a virada
@@ -697,6 +697,12 @@ docker exec "$PG_CONTAINER" psql -U flyer -d flyer -c "
 SELECT provider_type,status,collected_at,product_count,priced_product_count
 FROM catalog_runs ORDER BY collected_at DESC LIMIT 20;
 "
+```
+
+Quando a cloud estiver validada, manter a coleta local parada:
+
+```powershell
+docker compose stop scheduler worker api
 ```
 
 ### Tenda bloqueado pelo WAF
@@ -731,12 +737,6 @@ print('errors', catalog.get('collection_errors'))
 - [ ] `TENDA_PROXY_URL` definido no Portainer quando necessário.
 - [ ] Coleta do Tenda validada com o proxy.
 
-Quando a cloud estiver validada, manter a coleta local parada:
-
-```powershell
-docker compose stop scheduler worker api
-```
-
 No Portainer, ativar inicialmente somente catálogos:
 
 ```text
@@ -744,15 +744,15 @@ CATALOG_COLLECTION_ENABLED=true
 DISCOVERY_ENABLED=false
 ```
 
-- [x] Atualização manual concluída.
-- [x] Assaí validado.
-- [x] Davitta validada.
+- [ ] Atualização manual concluída.
+- [ ] Assaí validado.
+- [ ] Davitta validada.
 - [ ] Tenda validado.
-- [x] São Vicente validado.
-- [x] Demais fontes validadas.
-- [x] Scheduler local parado.
-- [x] Scheduler cloud ativado.
-- [x] Não existem dois ambientes coletando simultaneamente.
+- [ ] São Vicente validado.
+- [ ] Demais fontes validadas.
+- [ ] Scheduler local parado.
+- [ ] Scheduler cloud ativado.
+- [ ] Não existem dois ambientes coletando simultaneamente.
 
 ## 16. Rollback de imagem
 
@@ -771,8 +771,8 @@ APP_IMAGE=ghcr.io/namewellz/offer-monitoring:sha-HASH_DO_COMMIT
 Atualizar a stack e validar `/health`. Rollback de imagem não desfaz migration
 de banco automaticamente.
 
-- [x] Tag SHA estável registrada.
-- [x] Procedimento de rollback conhecido.
+- [ ] Tag SHA estável registrada.
+- [ ] Procedimento de rollback conhecido.
 
 ## 17. Backup recorrente
 
@@ -789,55 +789,26 @@ Cópia externa
 Teste periódico de restauração
 ```
 
-- [x] Backup automático configurado.
-- [x] Retenção configurada.
+- [ ] Backup automático configurado.
+- [ ] Retenção configurada.
 - [ ] Cópia fora da Oracle configurada.
-- [x] Restore de teste executado.
+- [ ] Restore de teste executado.
 
 ## Checklist final resumido
 
-- [x] Código enviado ao GitHub sem segredos.
-- [x] Imagem GHCR multi-arquitetura publicada.
-- [x] Diretórios persistentes criados na Oracle.
-- [x] Stack criada via Docker Compose e visível no Portainer.
-- [x] Watchtower configurado sem duplicidade.
-- [x] Dump PostgreSQL restaurado.
-- [x] `/data` restaurado.
-- [x] Contagens local e cloud conferidas.
-- [x] DNS e Caddy configurados.
-- [x] HTTPS funcionando.
+- [ ] Código enviado ao GitHub sem segredos.
+- [ ] Imagem GHCR multi-arquitetura publicada.
+- [ ] Diretórios persistentes criados na Oracle.
+- [ ] Stack criada no Portainer.
+- [ ] Watchtower configurado sem duplicidade.
+- [ ] Dump PostgreSQL restaurado.
+- [ ] `/data` restaurado.
+- [ ] Contagens local e cloud conferidas.
+- [ ] DNS e Caddy configurados.
+- [ ] HTTPS funcionando.
 - [ ] Interface validada no celular.
-- [x] Coleta manual validada.
-- [x] Scheduler cloud ativado.
-- [x] Scheduler local desativado.
-- [x] Backup recorrente configurado.
-- [x] Rollback por tag SHA documentado.
-
-## Registro do deploy de 2026-09-01
-
-```text
-URL: https://ofertas.overflowlab.net
-Commit: b3bbe48c008fb3767ab75d83408c594084e762b2
-Imagem: ghcr.io/namewellz/offer-monitoring:sha-b3bbe48c008fb3767ab75d83408c594084e762b2
-Digest multi-arquitetura: sha256:95fd1db5582abaface8b7e99452a84da1ee3c52a845ea6dea2aa73a89b823cc8
-Alembic: 0007_canonical_departments
-```
-
-Contagens no ponto de corte, conferidas localmente e na Oracle:
-
-```text
-retailers,8
-stores,8
-catalog_runs,184
-catalog_products,152676
-catalog_price_observations,3536850
-flyers,4
-product_offers,235
-```
-
-As coletas manuais de Arena, GoodBom, Atacadão, Savegnago, Davitta, Assaí e
-São Vicente finalizaram com `SUCCESS`. O Tenda retornou `403 Forbidden` no WAF
-da Azion para o IP de saída da Oracle, inclusive com cabeçalhos e cookies de
-navegador. O histórico migrado do Tenda permanece disponível e a falha aparece
-isoladamente na tela de atualizações. Para reativar essa coleta será necessária
-uma rota de saída aceita pelo Tenda, como um proxy apropriado.
+- [ ] Coleta manual validada.
+- [ ] Scheduler cloud ativado.
+- [ ] Scheduler local desativado.
+- [ ] Backup recorrente configurado.
+- [ ] Rollback por tag SHA documentado.
