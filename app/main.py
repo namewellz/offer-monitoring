@@ -36,8 +36,8 @@ from app.catalog.v2.read import (
     row_result as v2_row_result,
 )
 from app.classification.canonical import (
-    CANONICAL_CATEGORIES,
     category_counts,
+    department_seed,
     distinct_canonicals,
     normalize_all,
     seed_categories,
@@ -65,6 +65,8 @@ from app.db.session import get_db
 from app.enrichment.butcher import butcher_comparison
 from app.enrichment.categories_dashboard import render_categories_page
 from app.enrichment.dashboard import render_butcher_dashboard
+from app.enrichment.department_review import department_review
+from app.enrichment.department_review_dashboard import render_department_review_page
 from app.enrichment.review import butcher_review
 from app.enrichment.review_dashboard import render_butcher_review
 from app.extraction.ollama_client import OllamaVisionClient
@@ -834,42 +836,67 @@ def butcher_review_json(db: Session = Depends(get_db)):
     return butcher_review(db)
 
 
+@app.get("/catalog/department-review", response_class=HTMLResponse, include_in_schema=False)
+def department_review_page(
+    db: Session = Depends(get_db), department: str = "Mercearia"
+):
+    """Revisão da classificação de um departamento (não só Açougue)."""
+    return render_department_review_page(department_review(db, department))
+
+
+@app.get("/catalog/department-review.json")
+def department_review_json(
+    db: Session = Depends(get_db), department: str = "Mercearia"
+):
+    return department_review(db, department)
+
+
 @app.get("/catalog/categories", response_class=HTMLResponse, include_in_schema=False)
-def categories_page(db: Session = Depends(get_db)):
-    """Painel de edição das categorias canônicas do Açougue."""
-    seed_categories(db)
+def categories_page(
+    db: Session = Depends(get_db), department: str = "Açougue"
+):
+    """Painel de edição das categorias canônicas de um departamento."""
+    seed_categories(db, department=department)
     return render_categories_page(
-        category_counts(db), CANONICAL_CATEGORIES, distinct_canonicals(db)
+        category_counts(db, department=department),
+        department_seed(department),
+        distinct_canonicals(db, department=department),
+        department=department,
     )
 
 
 @app.get("/catalog/categories.json")
-def categories_json(db: Session = Depends(get_db)):
-    seed_categories(db)
+def categories_json(db: Session = Depends(get_db), department: str = "Açougue"):
+    seed_categories(db, department=department)
     return {
-        "base": list(CANONICAL_CATEGORIES),
-        "canonicals": distinct_canonicals(db),
-        "labels": category_counts(db),
+        "department": department,
+        "base": list(department_seed(department)),
+        "canonicals": distinct_canonicals(db, department=department),
+        "labels": category_counts(db, department=department),
     }
 
 
 @app.post("/catalog/categories")
-def categories_update(updates: dict, db: Session = Depends(get_db)):
-    """Salva os nomes canônicos (updates: [{label, canonical}])."""
-    seed_categories(db)
+def categories_update(
+    updates: dict, db: Session = Depends(get_db), department: str = "Açougue"
+):
+    """Salva os nomes canônicos de um departamento (updates: [{label, canonical}])."""
+    seed_categories(db, department=department)
     payload = updates.get("updates") or []
-    return set_canonicals(db, payload)
+    return set_canonicals(db, payload, department=department)
 
 
 @app.post("/catalog/categories/normalize")
-def categories_normalize(db: Session = Depends(get_db)):
-    """Aplica a normalização automática de nomes canônicos (bife/miúdo/espécie)."""
-    seed_categories(db)
-    result = normalize_all(db, commit=True)
+def categories_normalize(
+    db: Session = Depends(get_db), department: str = "Açougue"
+):
+    """Aplica a normalização automática dos nomes canônicos de um departamento."""
+    seed_categories(db, department=department)
+    result = normalize_all(db, department=department, commit=True)
     return {
         "labels": result["labels"],
         "changed": result["changed"],
-        "canonicals_after": len(distinct_canonicals(db)),
+        "canonicals_after": len(distinct_canonicals(db, department=department)),
     }
 
 

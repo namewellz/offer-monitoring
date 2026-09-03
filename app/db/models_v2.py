@@ -414,15 +414,18 @@ class CurrentProductResolution(Base):
 
 
 class LlmClassification(_BigIntId, Base):
-    """Verdict of the online LLM (DeepSeek) for a source product in a meat line.
+    """Verdict of the online LLM (DeepSeek) for a source product in a department.
 
-    ``decision`` is ``accept`` (product really is the line, e.g. Bacon) or
-    ``reject`` (false positive — name only carries the meat word as flavour/
-    ingredient). Used to filter deterministic meat families.
+    ``decision`` is ``accept`` (product really belongs to the department, and
+    ``line_key`` holds its canonical category) or ``reject`` (false positive).
+    ``department`` names the store department the run targeted (Açougue,
+    Mercearia, Bebidas, ...) so each product can be classified in exactly one
+    department and panels filter by it.
     """
 
     __tablename__ = "llm_classifications"
     source_product_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    department: Mapped[str] = mapped_column(String(40), default="Açougue", index=True)
     line_key: Mapped[str] = mapped_column(String(80))
     retailer_slug: Mapped[str | None] = mapped_column(String(80), index=True)
     decision: Mapped[str] = mapped_column(String(20))
@@ -436,27 +439,32 @@ class LlmClassification(_BigIntId, Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
-    __table_args__ = (UniqueConstraint("source_product_id", "line_key"),)
+    __table_args__ = (
+        UniqueConstraint("source_product_id", "department", "line_key"),
+    )
 
 
 class LlmCategoryLabel(_BigIntId, Base):
-    """Canonical label for each category name the LLM returns.
+    """Canonical label for each category name the LLM returns, per department.
 
     ``label`` is the raw category as the model writes it (e.g. "Acém Bovino");
     ``canonical`` is the name we display/group by ("Acém"). Editing ``canonical``
     lets the reviewer merge synonyms and fix names over time, without a
-    reclassification run.
+    reclassification run. ``department`` scopes the vocabulary per store
+    department (Açougue, Mercearia, ...).
     """
 
     __tablename__ = "llm_category_labels"
-    label: Mapped[str] = mapped_column(String(160), unique=True)
+    label: Mapped[str] = mapped_column(String(160))
     canonical: Mapped[str] = mapped_column(String(160), index=True)
+    department: Mapped[str] = mapped_column(String(40), default="Açougue", index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    __table_args__ = (UniqueConstraint("department", "label"),)
 
 
 class ShoppingList(_BigIntId, Base):

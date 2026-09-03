@@ -19,14 +19,20 @@ def upsert_decisions(
     db: Session,
     rows: list[dict[str, Any]],
 ) -> dict[str, int]:
-    """Insert or update classification rows. Returns counts for reporting."""
+    """Insert or update classification rows. Returns counts for reporting.
+
+    Each row carries an optional ``department`` (default "Açougue"); a product
+    is uniquely identified by (source_product_id, department, line_key).
+    """
     created = updated = 0
     for row in rows:
         product_id = int(row["source_product_id"])
         line_key = row["line_key"]
+        department = row.get("department") or "Açougue"
         existing = db.scalar(
             select(LlmClassification).where(
                 LlmClassification.source_product_id == product_id,
+                LlmClassification.department == department,
                 LlmClassification.line_key == line_key,
             )
         )
@@ -38,6 +44,7 @@ def upsert_decisions(
             db.add(
                 LlmClassification(
                     source_product_id=product_id,
+                    department=department,
                     line_key=line_key,
                     retailer_slug=row.get("retailer_slug"),
                     decision=row["decision"],

@@ -16,7 +16,15 @@ def render_categories_page(
     labels: list[dict[str, Any]],
     base: tuple[str, ...],
     canonicals: list[str] | None = None,
+    department: str = "Açougue",
 ) -> str:
+    from app.catalog.taxonomy import CANONICAL_DEPARTMENTS
+
+    dept_opts = "".join(
+        f'<option value="{escape(d)}"{" selected" if d == department else ""}>'
+        f"{escape(d)}</option>"
+        for d in CANONICAL_DEPARTMENTS
+    )
     options = sorted({name for name in (*base, *(canonicals or [])) if name})
     rows: list[str] = []
     for row in labels:
@@ -39,7 +47,7 @@ def render_categories_page(
     return f"""<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#145c42"><title>Açougue — categorias canônicas</title>
+<meta name="theme-color" content="#145c42"><title>{escape(department)} — categorias canônicas</title>
 <link rel="stylesheet" href="/static/catalog.css?v=20260829-4">
 <datalist id="canonical-list">{datalist}</datalist>
 <style>
@@ -55,7 +63,7 @@ input.canon{{width:min(320px,100%);padding:8px 10px;border:1px solid var(--line)
 </style></head><body>
 <header class="topbar"><div class="shell brandbar">
 <a class="brand" href="/catalog"><span class="brand-mark">OM</span><span>Offer Monitor</span></a>
-<span class="live"><i></i> Açougue</span></div></header>
+<span class="live"><i></i> {escape(department)}</span></div></header>
 <main class="shell">
 <nav class="view-tabs" aria-label="Visões do Açougue">
 <a href="/catalog/cuts">Comparativo R$/kg</a>
@@ -70,6 +78,7 @@ nome canônico em várias linhas para agrupá-las (ex.: juntar 'Acém Bovino' em
 'Acém'). Use o atalho ou digite livre — salva e a tela de preço regrupa.</p></div></section>
 <div id="msg" class="msg"></div>
 <div class="cat-tools">
+<select id="dept" title="Departamento" onchange="location.href='/catalog/categories?department='+encodeURIComponent(this.value)" style="padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;background:#fff">{dept_opts}</select>
 <div class="review-search"><input id="q" type="search" placeholder="Filtrar categoria…"></div>
 <span style="display:flex;gap:6px;align-items:center">
 <input id="newcat" list="canonical-list" placeholder="Nova categoria canônica…" style="padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px">
@@ -102,7 +111,7 @@ nome canônico em várias linhas para agrupá-las (ex.: juntar 'Acém Bovino' em
   async function doSave(updates){{
     const btn=document.getElementById('save'); btn.disabled=true;
     try{{
-      const res=await fetch('/catalog/categories',{{
+      const res=await fetch('/catalog/categories?department='+encodeURIComponent(document.getElementById('dept').value),{{
         method:'POST',headers:{{'Content-Type':'application/json'}},
         body:JSON.stringify({{updates}})
       }});

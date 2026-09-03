@@ -9,7 +9,11 @@ product. The reply only returns ids, so results can be related back to the DB.
 
 from __future__ import annotations
 
-from app.classification.canonical import CANONICAL_CATEGORIES
+from app.classification.canonical import (
+    CANONICAL_CATEGORIES,
+    department_seed,
+    reject_token,
+)
 
 # The meat lines supported today. ``keywords`` drives candidate collection
 # (any raw name containing one of them), ``definition`` + ``examples`` teach the
@@ -120,6 +124,84 @@ def build_acougue_prompt(
         "produto cárneo de açougue/frios (comida pronta, sabor artificial, "
         "petisco, etc.). Seja consistente: mesmo produto = mesma categoria; "
         "não crie variações do nome.\n\n"
+        "CATEGORIAS CANÔNICAS:\n" + canonical_text + "\n\n"
+        "Lista de itens (ID — nome):\n" + "\n".join(lines) + scope +
+        '\n\nResponda APENAS com o JSON no formato exato {"items": {"<id>": '
+        '"<categoria>"}}.'
+    )
+
+
+# --- Prompts genéricos por departamento (Mercearia, Bebidas, Frios, ...) -------
+
+# Descrição do escopo por departamento, usada no prompt para a LLM saber o que
+# "é deste departamento" (e o que deve ir para o token de rejeição).
+DEPARTMENT_RULES: dict[str, str] = {
+    "Açougue": (
+        "produtos cárneos crus/embutidos/fatiados de açougue e frios de corte "
+        "(carnes bovina/suína/aves, linguiças, salsicha, bacon, presunto...)"
+    ),
+    "Mercearia": (
+        "alimentos secos, enlatados, conservas, grãos, massas, farinhas, café, "
+        "chá, óleos, temperos, molhos, biscoitos, salgadinhos, açúcar e matinais"
+    ),
+    "Bebidas": (
+        "bebidas em geral: refrigerantes, sucos, água, cervejas, vinhos, "
+        "destilados, energéticos, isotônicos e chás prontos"
+    ),
+    "Frios e Laticínios": (
+        "laticínios e frios resfriados: leite, iogurte, queijos, manteiga, "
+        "margarina, requeijão, creme de leite, presuntos e embutidos frios"
+    ),
+}
+
+
+def _department_scope(department: str) -> str:
+    return DEPARTMENT_RULES.get(department) or f"produtos típicos do departamento de {department}"
+
+
+def department_system_prompt(department: str) -> str:
+    """System prompt genérico de classificação por departamento."""
+    token = reject_token(department)
+    scope = _department_scope(department)
+    return (
+        "Você é um especialista em classificação de produtos de supermercado, "
+        f"responsável pelo departamento de {department}. Você recebe uma lista "
+        "numerada de itens reais com IDs. Para cada item diga a CATEGORIA "
+        "canônica mais adequada. Regras:\n"
+        f"1) Este departamento cobre: {scope}. Se o item NÃO for um produto "
+        "típico deste departamento (é de outro departamento, é industrializado/"
+        "embalado de outra seção, ou usa o tema apenas como sabor/ingrediente), "
+        f"use exatamente '{token}'.\n"
+        "2) Seja CONSISTENTE: o mesmo produto em lojas, marcas e pesos "
+        "diferentes deve cair na mesma categoria (não use marca/peso no nome).\n"
+        "3) Não invente ids. Responda apenas com um objeto JSON válido no "
+        'formato {"items": {"<id>": "<categoria>"}} — sem notas, sem texto '
+        "fora do JSON, sem quebras de linha dentro das aspas.\n"
+        "4) Use SEMPRE uma das CATEGORIAS CANÔNICAS listadas na mensagem "
+        f"(ou '{token}'). Não crie sinônimos/variantes (ex.: 'Arroz Tipo 1' e "
+        "'Arroz Branco' -> 'Arroz'; 'Café Pilão 500g' -> 'Café Torrado e Moído').\n"
+        "5) NÃO acrescente marca, peso, sabor, embalagem, espécie ou atributo à "
+        "categoria: escreva apenas o nome-base canônico exato da lista."
+    )
+
+
+def build_department_prompt(
+    department: str,
+    items: list[tuple[int, str]],
+    canonical: list[str] | None = None,
+    retailer_label: str | None = None,
+) -> str:
+    """User prompt genérico: lista de itens + vocabulário canônico do dept."""
+    lines = [f"{pid} — {name}" for pid, name in items]
+    scope = f"\nContexto: itens do supermercado {retailer_label}." if retailer_label else ""
+    token = reject_token(department)
+    categories = canonical or list(department_seed(department))
+    canonical_text = "\n".join(f"- {c}" for c in categories)
+    return (
+        "Classifique cada item abaixo em UMA das CATEGORIAS CANÔNICAS listadas "
+        f"(departamento de {department}). Use '{token}' para itens que não são "
+        f"produtos típicos deste departamento. Seja consistente: mesmo produto = "
+        "mesma categoria; não crie variações de nome, marca, peso ou sabor.\n\n"
         "CATEGORIAS CANÔNICAS:\n" + canonical_text + "\n\n"
         "Lista de itens (ID — nome):\n" + "\n".join(lines) + scope +
         '\n\nResponda APENAS com o JSON no formato exato {"items": {"<id>": '

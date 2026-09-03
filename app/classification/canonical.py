@@ -128,60 +128,187 @@ CANONICAL_CATEGORIES: tuple[str, ...] = (
 )
 
 
-def seed_categories(db: Session) -> int:
+# --- Departamento --------------------------------------------------------------
+#
+# O mesmo motor classifica vários departamentos (Açougue hoje; Mercearia,
+# Bebidas, Frios e Laticínios primeiro). Cada departamento tem seu próprio
+# vocabulário canônico (llm_category_labels.department) e suas classificações
+# (llm_classifications.department). As funções abaixo aceitam ``department`` e
+# usam "Açougue" como padrão para não quebrar telas/scripts existentes.
+
+
+def department_code(department: str) -> str:
+    """Slug simples do departamento (ex.: 'Frios e Laticínios' -> 'frios_e_laticinios')."""
+    return _fold_ascii(department or "").replace(" ", "_") or "outros"
+
+
+def reject_token(department: str) -> str:
+    """Token que a LLM deve usar para 'não é deste departamento'."""
+    if department == "Açougue":
+        return "NAO_CARNE"
+    return "NAO_" + department_code(department).upper()
+
+
+def department_seed(department: str) -> tuple[str, ...]:
+    """Vocabulário inicial (curado) de um departamento, usado como fallback."""
+    return DEPARTMENT_SEEDS.get(department) or ()
+
+
+# Vocabulários canônicos iniciais por departamento (curados; o painel refina).
+DEPARTMENT_SEEDS: dict[str, tuple[str, ...]] = {
+    "Açougue": CANONICAL_CATEGORIES,
+    "Mercearia": (
+        # cereais, grãos e farinhas
+        "Arroz", "Arroz Integral", "Arroz Parboilizado", "Feijão Carioca",
+        "Feijão Preto", "Feijão de Corda", "Lentilha", "Grão de Bico",
+        "Ervilha Seca", "Soja", "Milho de Pipoca", "Canjica", "Quinoa",
+        "Aveia", "Granola", "Farinha de Trigo", "Farinha de Mandioca",
+        "Farinha de Milho", "Fubá", "Polvilho Doce", "Polvilho Azedo",
+        "Farinha de Rosca", "Farinha Láctea", "Amido de Milho", "Cuscuz",
+        "Farofa Pronta", "Farinha de Arroz",
+        # massas
+        "Macarrão", "Macarrão Instantâneo", "Macarrão de Sêmola",
+        "Talharim", "Penne", "Macarrão para Salada", "Nhoque", "Rondelli",
+        # açúcar e adoçantes
+        "Açúcar Cristal", "Açúcar Refinado", "Açúcar Mascavo",
+        "Açúcar Demerara", "Adoçante",
+        # café, chá e achocolatados
+        "Café Torrado e Moído", "Café Solúvel", "Café em Cápsulas",
+        "Cappuccino", "Chá Preto", "Chá de Ervas", "Chá Mate", "Chá Verde",
+        "Achocolatado em Pó", "Chocolate em Pó", "Chocolate Quente",
+        # óleos, vinagres, sal e temperos
+        "Óleo de Soja", "Óleo de Girassol", "Óleo de Canola", "Azeite de Oliva",
+        "Vinagre", "Vinagre Balsâmico", "Sal Refinado", "Sal Grosso",
+        "Sal Marinho", "Açafrão", "Orégano", "Pimenta-do-Reino", "Páprica",
+        "Canela em Pó", "Cominho", "Curry", "Tempero Completo",
+        "Tempero de Alho", "Alho Triturado", "Caldo de Galinha",
+        "Caldo de Carne", "Caldo de Legumes", "Pimenta Calabresa",
+        "Catchup", "Mostarda", "Maionese", "Molho Shoyu", "Molho Inglês",
+        "Molho de Pimenta", "Molho de Tomate", "Extrato de Tomate",
+        "Tomate Pelado", "Molho Branco", "Molho de Alho", "Molho de Salada",
+        "Tempero Pronto", "Especiarias",
+        # conservas e enlatados
+        "Azeitona", "Palmito", "Milho Verde em Conserva",
+        "Ervilha em Conserva", "Seleta de Legumes", "Atum em Lata",
+        "Sardinha em Lata", "Cogumelos em Conserva", "Feijoada Pronta",
+        "Legumes em Conserva", "Molho de Tomate com Pedaços",
+        # biscoitos e snacks
+        "Biscoito Recheado", "Biscoito de Polvilho", "Biscoito Cream Cracker",
+        "Biscoito Água e Sal", "Biscoito Maizena", "Biscoito Wafer",
+        "Biscoito de Leite", "Salgadinho de Milho", "Batata Chips",
+        "Amendoim Torrado", "Amendoim Japonês", "Castanha de Caju",
+        "Pipoca de Micro-ondas", "Torrada", "Mistura para Pipoca",
+        # matinais e confeitaria em pó
+        "Cereal Matinal", "Mingau", "Mistura para Bolo", "Fermento em Pó",
+        "Fermento Biológico", "Essência de Baunilha", "Coco Ralado",
+        "Gelatina em Pó", "Sopa Instantânea", "Creme de Cebola",
+        "Molho para Salada",
+    ),
+    "Bebidas": (
+        "Cerveja Pilsen", "Cerveja Premium", "Cerveja Artesanal",
+        "Cerveja Sem Álcool", "Cerveja Malzbier", "Chopp", "Vinho Tinto",
+        "Vinho Branco", "Vinho Rosé", "Vinho de Mesa", "Espumante",
+        "Prosecco", "Champagne", "Whisky", "Vodca", "Cachaça", "Gin",
+        "Rum", "Tequila", "Conhaque", "Licor", "Energético", "Isotônico",
+        "Água com Gás", "Água Mineral", "Água de Coco", "Água Tônica",
+        "Refrigerante Cola", "Refrigerante Guaraná", "Refrigerante Laranja",
+        "Refrigerante Limão", "Refrigerante Soda", "Refrigerante Zero",
+        "Refrigerante de Uva", "Suco de Fruta", "Suco Integral",
+        "Suco em Pó", "Néctar", "Bebida de Soja", "Chá Gelado",
+        "Chá Pronto", "Mate", "Kombucha", "Bebida Láctea", "Bitter",
+        "Cerveja Importada", "Água Saborizada",
+    ),
+    "Frios e Laticínios": (
+        "Leite Integral", "Leite Desnatado", "Leite Semidesnatado",
+        "Leite Zero Lactose", "Leite em Pó", "Leite Fermentado",
+        "Iogurte Natural", "Iogurte de Frutas", "Iogurte Grego",
+        "Iogurte Zero Lactose", "Bebida Láctea", "Petit Suisse",
+        "Requeijão", "Manteiga", "Manteiga sem Sal", "Margarina",
+        "Margarina Light", "Creme de Leite", "Creme de Leite Fresco",
+        "Queijo Muçarela", "Queijo Prato", "Queijo Parmesão",
+        "Queijo Parmesão Ralado", "Queijo Minas Frescal",
+        "Queijo Minas Padrão", "Queijo Coalho", "Queijo Provolone",
+        "Queijo Gorgonzola", "Queijo Brie", "Queijo Camembert",
+        "Queijo Cottage", "Queijo Ricota", "Queijo Colonial",
+        "Queijo Suíço", "Queijo Cheddar", "Queijo Fundido",
+        "Queijo de Búfala", "Queijo Ralado", "Presunto", "Presunto Cozido",
+        "Presunto de Peru", "Mortadela", "Mortadela Defumada", "Salame",
+        "Salame Italiano", "Peito de Peru", "Peito de Peru Defumado",
+        "Blanquet de Peru", "Lombo Canadense", "Queijo Processado",
+    ),
+}
+
+
+def seed_categories(db: Session, department: str = "Açougue") -> int:
     """Insert distinct accepted categories (from LLM runs) as editable labels.
 
     New labels default canonical = label; existing entries are untouched so user
-    overrides survive new classification runs.
+    overrides survive new classification runs. Scoped to ``department``.
     """
     labels = db.execute(
         select(LlmClassification.line_key)
         .where(
             LlmClassification.decision == "accept",
+            LlmClassification.department == department,
             LlmClassification.line_key.notin_(("reject", "NAO_CARNE")),
         )
         .distinct()
     ).scalars().all()
     existing = set(
-        db.execute(select(LlmCategoryLabel.label)).scalars().all()
+        db.execute(
+            select(LlmCategoryLabel.label).where(
+                LlmCategoryLabel.department == department
+            )
+        ).scalars().all()
     )
     added = 0
     for label in labels:
         if label and label not in existing:
             canonical = normalize_category(label) or label
-            db.add(LlmCategoryLabel(label=label, canonical=canonical))
+            db.add(
+                LlmCategoryLabel(
+                    label=label, canonical=canonical, department=department
+                )
+            )
             added += 1
     if added:
         db.commit()
     return added
 
 
-def canonical_map(db: Session) -> dict[str, str]:
-    """label -> canonical (defaults to label when absent)."""
-    rows = db.execute(select(LlmCategoryLabel.label, LlmCategoryLabel.canonical)).all()
+def canonical_map(db: Session, department: str = "Açougue") -> dict[str, str]:
+    """label -> canonical (defaults to label when absent), scoped to department."""
+    rows = db.execute(
+        select(LlmCategoryLabel.label, LlmCategoryLabel.canonical).where(
+            LlmCategoryLabel.department == department
+        )
+    ).all()
     return {label: canonical for label, canonical in rows}
 
 
-def distinct_canonicals(db: Session) -> list[str]:
-    """Canonical names currently in use (after merges/renames in the panel)."""
+def distinct_canonicals(db: Session, department: str = "Açougue") -> list[str]:
+    """Canonical names in use for a department (after merges/renames)."""
     rows = db.execute(
-        select(LlmCategoryLabel.canonical).distinct().order_by(LlmCategoryLabel.canonical)
+        select(LlmCategoryLabel.canonical)
+        .where(LlmCategoryLabel.department == department)
+        .distinct()
+        .order_by(LlmCategoryLabel.canonical)
     ).scalars().all()
     return [name for name in rows if name]
 
 
-def prompt_canonical_names(db: Session) -> list[str]:
-    """Vocabulary sent to the LLM = the canonical names from the panel.
+def prompt_canonical_names(db: Session, department: str = "Açougue") -> list[str]:
+    """Vocabulary sent to the LLM for a department = canonical names from panel.
 
     Editing/merging categories in the panel changes the next classification run
-    with no code changes. Falls back to the curated constant when empty.
+    with no code changes. Falls back to the curated seed when empty.
     """
-    names = distinct_canonicals(db)
-    return names or list(CANONICAL_CATEGORIES)
+    names = distinct_canonicals(db, department=department)
+    return names or list(department_seed(department))
 
 
-def category_counts(db: Session) -> list[dict[str, Any]]:
-    """Raw labels in use (accepted), with item count, for the edit screen."""
+def category_counts(db: Session, department: str = "Açougue") -> list[dict[str, Any]]:
+    """Raw labels in use (accepted) for a department, with item count."""
     rows = db.execute(
         select(
             LlmClassification.line_key.label("label"),
@@ -189,12 +316,13 @@ def category_counts(db: Session) -> list[dict[str, Any]]:
         )
         .where(
             LlmClassification.decision == "accept",
+            LlmClassification.department == department,
             LlmClassification.line_key.notin_(("reject", "NAO_CARNE")),
         )
         .group_by(LlmClassification.line_key)
         .order_by(func.count().desc())
     ).all()
-    overrides = canonical_map(db)
+    overrides = canonical_map(db, department=department)
     return [
         {
             "label": label,
@@ -205,8 +333,10 @@ def category_counts(db: Session) -> list[dict[str, Any]]:
     ]
 
 
-def set_canonicals(db: Session, updates: list[dict[str, Any]]) -> dict[str, int]:
-    """Upsert canonical for the given labels. Returns (created, updated)."""
+def set_canonicals(
+    db: Session, updates: list[dict[str, Any]], department: str = "Açougue"
+) -> dict[str, int]:
+    """Upsert canonical for the given labels (department-scoped). Returns counts."""
     created = updated = 0
     for update in updates:
         label = (update.get("label") or "").strip()
@@ -214,10 +344,17 @@ def set_canonicals(db: Session, updates: list[dict[str, Any]]) -> dict[str, int]
         if not label:
             continue
         existing = db.execute(
-            select(LlmCategoryLabel).where(LlmCategoryLabel.label == label)
+            select(LlmCategoryLabel).where(
+                LlmCategoryLabel.department == department,
+                LlmCategoryLabel.label == label,
+            )
         ).scalar_one_or_none()
         if existing is None:
-            db.add(LlmCategoryLabel(label=label, canonical=canonical))
+            db.add(
+                LlmCategoryLabel(
+                    label=label, canonical=canonical, department=department
+                )
+            )
             created += 1
         elif existing.canonical != canonical:
             existing.canonical = canonical
@@ -226,12 +363,18 @@ def set_canonicals(db: Session, updates: list[dict[str, Any]]) -> dict[str, int]
     return {"created": created, "updated": updated}
 
 
-def normalize_all(db: Session, commit: bool = True) -> dict[str, Any]:
-    """Preview or apply canonical normalization over every stored label.
+def normalize_all(
+    db: Session, department: str = "Açougue", commit: bool = True
+) -> dict[str, Any]:
+    """Preview or apply canonical normalization over stored labels of a department.
 
     With ``commit=False`` returns the mapping without writing, for review.
     """
-    rows = db.execute(select(LlmCategoryLabel)).scalars().all()
+    rows = db.execute(
+        select(LlmCategoryLabel).where(
+            LlmCategoryLabel.department == department
+        )
+    ).scalars().all()
     plan: dict[str, str] = {}
     for row in rows:
         normalized = normalize_category(row.label)
