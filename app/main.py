@@ -743,24 +743,25 @@ def v2_catalog_departments(db: Session = Depends(get_db)):
 
 
 @app.get("/catalog/cuts", response_class=HTMLResponse, include_in_schema=False)
-def butcher_dashboard(limit: int = 300, db: Session = Depends(get_db)):
-    return render_butcher_dashboard(butcher_comparison(db, limit=min(max(limit, 1), 2000)))
+def butcher_dashboard(limit: int = 300, all: int = 0, db: Session = Depends(get_db)):
+    return render_butcher_dashboard(
+        butcher_comparison(db, limit=min(max(limit, 1), 2000), use_llm=all == 0)
+    )
 
 
 @app.get("/catalog/cuts.json")
-def butcher_json(limit: int = 300, db: Session = Depends(get_db)):
-    result = butcher_comparison(db, limit=min(max(limit, 1), 2000))
+def butcher_json(limit: int = 300, all: int = 0, db: Session = Depends(get_db)):
+    result = butcher_comparison(
+        db, limit=min(max(limit, 1), 2000), use_llm=all == 0
+    )
     groups = []
     for group in result["groups"]:
         groups.append(
             {
-                "label": group["label"],
-                "species": group["species"],
-                "cut": group["cut"],
-                "bone_state": group["bone_state"],
-                "conservation": group["conservation"],
-                "presentation": group["presentation"],
-                "seasoned": group["seasoned"],
+                "category": group.get("llm_category"),
+                "form": group.get("form"),
+                "label": group.get("label"),
+                "conservation": group.get("conservation"),
                 "sources": {
                     slug: {
                         "price_kg": float(info["price_kg"])
@@ -775,6 +776,7 @@ def butcher_json(limit: int = 300, db: Session = Depends(get_db)):
     return {
         "total_items": result["total_items"],
         "total_groups": result["total_groups"],
+        "llm": result.get("llm"),
         "groups": groups,
     }
 
