@@ -32,6 +32,10 @@ _SPECIES_ASCII = {
 }
 _CONNECTORS = {"a", "de", "da", "do", "em", "com", "e", "as", "os", "das", "dos"}
 _SKIP_STRIP_HEAD = _SPECIES_ASCII | {"empanado", "empanada", "milanesa", "inteiro"}
+# Species must be KEPT for these heads (e.g. Picanha Suína != Picanha bovina).
+_KEEP_SPECIES_HEAD = {"picanha"}
+# Head synonyms (Barriga Suína == Panceta).
+_HEAD_ALIAS = {"barriga": "Panceta"}
 
 
 def normalize_category(name: str) -> str:
@@ -67,15 +71,24 @@ def normalize_category(name: str) -> str:
         if not match:
             break
         tail = tail[: match.start()]
-    # strip a FINAL redundant bovine/porcine species word
-    tail = re.sub(r"\s+(bovino|bovina|suino|suina)$", "", tail)
+    # strip a FINAL redundant bovine/porcine species word (unless the head needs
+    # its species, e.g. Picanha Suína must stay separate from beef Picanha)
+    head = tail.split()[0].lower() if tail.split() else ""
+    if head not in _KEEP_SPECIES_HEAD:
+        tail = re.sub(r"\s+(bovino|bovina|suino|suina)$", "", tail)
 
     end = start + len(tail)
     kept = original[start:end].strip()
     kept_folded = _fold_ascii(kept)
     if not kept or (len(kept_folded.split()) <= 1 and kept_folded in _SPECIES_ASCII):
         return original
-    return " ".join(kept.split())
+    kept = " ".join(kept.split())
+    # head aliases (Barriga Suína == Panceta)
+    tokens = kept.split()
+    if tokens and _fold_ascii(tokens[0]) in _HEAD_ALIAS:
+        tokens[0] = _HEAD_ALIAS[_fold_ascii(tokens[0])]
+        kept = " ".join(tokens)
+    return kept
 
 # Curated closed vocabulary used to steer the LLM (and shown on the screen).
 CANONICAL_CATEGORIES: tuple[str, ...] = (
