@@ -57,12 +57,20 @@ def normalize_category(name: str) -> str:
                 start = len(prefix)
                 break
 
-    # trailing species check runs on the substring AFTER the prefix (indices map
-    # 1:1 between the folded and original strings)
-    sub = folded[start:]
-    match = re.search(r"\s+(bovino|bovina|suino|suina)$", sub)
-    end = (start + match.start()) if match else len(folded)
+    tail = folded[start:]
+    # strip sale-form words (they are their own price row: fatiado/cubos/moída/desfiado/posta)
+    while True:
+        match = re.search(
+            r"(?:\s+(?:em cubos|cubos|fatiad[oa]|desfiad[oa]|postas?|moid[oa]))+$",
+            tail,
+        )
+        if not match:
+            break
+        tail = tail[: match.start()]
+    # strip a FINAL redundant bovine/porcine species word
+    tail = re.sub(r"\s+(bovino|bovina|suino|suina)$", "", tail)
 
+    end = start + len(tail)
     kept = original[start:end].strip()
     kept_folded = _fold_ascii(kept)
     if not kept or (len(kept_folded.split()) <= 1 and kept_folded in _SPECIES_ASCII):

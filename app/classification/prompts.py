@@ -97,7 +97,11 @@ ACOUGUE_SYSTEM_PROMPT = (
     "sem quebras de linha dentro das aspas.\n"
     "4) Use SEMPRE uma das CATEGORIAS CANÔNICAS listadas na mensagem (ou "
     "'NAO_CARNE'). Não crie sinônimos/variantes (ex.: use 'Acém', não "
-    "'Acém Bovino'/'Acém em Cubos'; use 'Peito de Frango' como padrão de frango)."
+    "'Acém Bovino'/'Acém em Cubos'; use 'Peito de Frango' como padrão de frango).\n"
+    "5) NÃO acrescente espécie nem atributo à categoria: escreva apenas o nome "
+    "exato da lista (não 'Bacon Suíno Fatiado', 'Picanha Suína', 'Coxa de "
+    "Frango Temperada', 'Lombo em Cubos' etc.). Se o item é fatiado/cubos/moído, "
+    "use mesmo assim só o nome-base da categoria."
 )
 
 
