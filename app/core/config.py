@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     assai_password: SecretStr | None = None
     assai_bundle_file: Path = Path("/run/secrets/meu_assai_bundle.js")
     tenda_proxy_url: str | None = None
+    # Online LLM (DeepSeek) used by the meat line classifier.
+    deepseek_api_key: SecretStr | None = None
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-chat"
+    deepseek_request_timeout_seconds: int = 180
+    deepseek_max_retries: int = 3
+    deepseek_temperature: float = 0
     scheduler_timezone: str = "America/Sao_Paulo"
     http_timeout_seconds: int = 30
     http_max_retries: int = 3

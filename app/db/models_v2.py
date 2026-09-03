@@ -411,3 +411,29 @@ class CurrentProductResolution(Base):
     changed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class LlmClassification(_BigIntId, Base):
+    """Verdict of the online LLM (DeepSeek) for a source product in a meat line.
+
+    ``decision`` is ``accept`` (product really is the line, e.g. Bacon) or
+    ``reject`` (false positive — name only carries the meat word as flavour/
+    ingredient). Used to filter deterministic meat families.
+    """
+
+    __tablename__ = "llm_classifications"
+    source_product_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    line_key: Mapped[str] = mapped_column(String(80))
+    retailer_slug: Mapped[str | None] = mapped_column(String(80), index=True)
+    decision: Mapped[str] = mapped_column(String(20))
+    reason: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(String(120))
+    batch_id: Mapped[_UUID | None] = mapped_column(UUID(as_uuid=True))
+    prompt_version: Mapped[str] = mapped_column(String(50), default="1")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    __table_args__ = (UniqueConstraint("source_product_id", "line_key"),)
