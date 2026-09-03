@@ -62,7 +62,7 @@ CUTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("assado_de_tiras", ("assado de tiras", "tiras")),
     ("capa_de_file", ("capa de filé", "capa de file", "capa file", "capa do filé", "capa do file")),
     ("copa_lombo", ("copa lombo", "copa de lombo", "bisteca do copa", "sobrepaleta")),
-    ("file_mignon", ("filé mignon", "file mignon", "mignon", "filezinho")),
+    ("file_mignon", ("filé mignon", "file mignon", "mignon")),
     ("contra_file", ("contra filé", "contra file", "contrafilé", "contrafile")),
     ("coxinha_da_asa", ("coxinha da asa", "coxinha asa", "meio da asa")),
     ("coxa_com_sobrecoxa", ("coxa com sobrecoxa", "coxa e sobrecoxa", "coxa sobrecoxa", "coxascoxa")),
@@ -104,7 +104,7 @@ CUTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("picanha", ("picanha",)),
     ("pulmao", ("pulmão", "pulmao")),
     ("rabo", ("rabo",)),
-    ("sassami", ("sassami", "sasami")),
+    ("sassami", ("sassami", "sasami", "filezinho")),
     ("vazio", ("vazio",)),
     ("asa", ("asa", "asinha")),
     ("dorso", ("dorso",)),
@@ -120,7 +120,8 @@ CUTS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 SPECIES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("frango", ("frango", "fgo", "galeto", "galinha", "chester", "peru")),
+    ("peru", ("peru",)),
+    ("frango", ("frango", "fgo", "galeto", "galinha", "chester")),
     ("bovino", ("bovino", "bov", "bovina", "boi", "vitela", "nelore")),
     ("suino", ("suino", "suíno", "suina", "suína", "porco", "leitão", "leitoa")),
     ("ave", ("ave", "ave natalina")),
@@ -139,22 +140,69 @@ BRANDS: tuple[str, ...] = (
     "cerrati", "perdigao", "sao vicente", "minerva", "raça",
 )
 
-# ascii tokens that mark a non-meat item misclassified as Açougue.
+# ascii tokens that mark a non-meat item misclassified as Açougue. Padded
+# whole-token match. This includes convenience foods whose name carries a meat
+# word only as a flavour/ingredient (e.g. "Amendoim Sabor Bacon", "Biscoito
+# Club Social Bacon", "Pizza de Lombo", "Doce Bananinha", pet snacks).
 NON_MEAT_TOKENS: tuple[str, ...] = (
     "alim p", "racao", "sache", "molho", "caldo", "massa", "capeletti",
     "ravioli", "faca p", "salg trigo", "mac marata", "lamen", "petisco",
     "acelga", "alface", "agriao", "alecrim", "beterraba", "brocolis",
     "couve", "espinafre", "repolho", "tomate", "cenoura", "batata",
     "cebola", "abobrinha", "alho", "salsinha",
+    # mercearia / snacks / doces / padaria / congelados preparados / pets
+    "amendoim", "biscoito", "bolacha", "salgadinho", "pipoca", "bolinha",
+    "bolinhas", "doce", "sorvete", "iogurte", "bala", "chocolate", "wafer",
+    "cereal", "barra", "suspiro", "crocantissimo", "crocante", "bebida",
+    "suco", "azeitona", "maionese", "pate", "farinha", "farofa", "glucose",
+    "karo", "milho", "pizza", "lasanha", "empadao", "torta", "escondidinho",
+    "bolinho", "bolinhos", "prato", "pao", "sanduiche", "sanduicheira",
+    "pocket", "macarrao", "miojo", "nissin", "bifinho", "alimento",
+    "petiscao", "creminho", "quitute", "croquete", "fogazza", "esfiha",
+    "pastel",
+)
+
+# ascii tokens signalling an already formed / ready-to-eat meat product
+# (hamburger, espetinho, choripan, empanado...). They are real meat but not a
+# raw cut: excluding them keeps cut families homogeneous (R$/kg comparison).
+PREPARED_TOKENS: tuple[str, ...] = (
+    "hamburguer", "hamburger", "hambuguer", "hambuger", "hamb", "espetinho",
+    "espeto", "choripan", "empanado", "empanados", "nuggets", "almondega",
+    "kibe", "milanesa", "hamburguesa",
+)
+
+# ascii tokens marking plant-based ("vegan") meat substitutes.
+PLANT_TOKENS: tuple[str, ...] = (
+    "soja", "veggie", "vegges", "veggan", "vegetal", "vegana", "vegano",
+    "vegetariano", "vegetariana", "proteina vegetal", "plant based",
+)
+
+# words that define the linguiça "tipo/linha", from most specific to broad.
+# "aperitivo" is market-speak for fininha; "fina" also means fininha.
+_LINGUICA_TYPE_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("fininha", ("fininha", "fina", "aperitivo")),
+    ("pernil", ("pernil",)),
+    ("calabresa", ("calabresa", "calab")),
+    ("toscana", ("toscana", "tosc")),
+    ("cuiabana", ("cuiabana", "cuiab")),
+    ("portuguesa", ("portuguesa", "portugueza", "portugal")),
+    ("paio", ("paio",)),
+    ("mista", ("mista",)),
+    ("frescal", ("frescal",)),
+    ("caseira", ("caseira", "colonial")),
+    ("defumada", ("defumada", "defumado")),
 )
 
 _PORK_CUTS = {"bacon", "pernil", "lombo", "paleta", "panceta", "toucinho", "papada", "copa_lombo", "carre"}
 
 _BEEF_CUTS = {
-    "acem", "alcatra", "coxao_duro", "coxao_mole", "entranha", "bananinha",
+    "acem", "alcatra", "coxao_duro", "coxao_mole", "entranha",
     "capa_de_file", "contra_file", "fraldinha", "patinho", "lagarto",
     "cupim", "maminha", "picanha", "miolo_da_alcatra", "musculo",
     "assado_de_tiras", "vazio", "baby_beef", "aranha", "carne_seca",
+    # "bananinha" is a beef cut but also a banana candy; it must NOT default to
+    # bovino without an explicit species word (candy would be misclassified).
+    # Real items read "Bananinha Bovina/Suína ..." and keep the species token.
 }
 
 
@@ -163,6 +211,7 @@ class ParsedMeat:
     raw_name: str
     species: str | None = None
     cut: str | None = None
+    cut_type: str | None = None  # e.g. linguiça: calabresa/toscana/fininha/paio/vegana
     bone_state: str | None = None
     skin_state: str | None = None
     presentation: str | None = None
@@ -185,6 +234,7 @@ class ParsedMeat:
         return (
             self.species,
             self.cut,
+            self.cut_type,
             self.bone_state,
             self.skin_state,
             self.presentation,
@@ -226,8 +276,17 @@ def parse_meat(raw_name: str) -> ParsedMeat:
         result.flags.append("non_meat")
         return result
 
-    # Stage: species (needs abbreviations expanded first).
+    # Needs abbreviations expanded before species/cut matching.
     expanded = _expand(tokens)
+
+    # Prepared / formed meat (hambúrguer, espetinho, choripan, empanado,
+    # coxinha frita...) is not a raw cut -> excluded from cut comparison.
+    prepared = _prepared_head(expanded)
+    if prepared:
+        result.flags.append("prepared")
+        return result
+
+    # Stage: species.
     result.species = _match_any(expanded, SPECIES)
 
     # Stage: conservation.
@@ -246,12 +305,30 @@ def parse_meat(raw_name: str) -> ParsedMeat:
     # Stage: seasoned.
     result.seasoned = _seasoned(expanded)
 
-    # Stage: cut.
-    result.cut = _match_any(expanded, CUTS)
+    # Stage: cut. The FIRST cut noun in the name is the product head
+    # ("linguiça de frango com bacon" -> linguiça, not bacon).
+    result.cut = _match_first_cut(expanded)
+    if result.cut == "linguica":
+        result.cut_type = _linguica_type(expanded)
 
     # Brand (attribute only; not identity for meat).
     result.brand = _brand(expanded)
 
+    # Plant-based substitutes. Veggie linguiça (soja/veggie/vegetal) becomes its
+    # own "Linguiça Vegana" family; other soya products are non-meat.
+    if _has_any(expanded, PLANT_TOKENS):
+        if result.cut == "linguica":
+            result.species = "vegetal"
+            result.cut_type = "vegana"
+            result.concept = "Linguiça Vegana"
+            result.flags.append("plant_based")
+            return result
+        result.flags.append("plant_based")
+        result.species = None
+        result.cut = None
+        return result
+
+    # Species fallbacks (no explicit species word in the name).
     if result.cut and result.species is None and result.cut in _PORK_CUTS:
         result.species = "suino"
     if result.cut and result.species is None and result.cut in _BEEF_CUTS:
@@ -266,9 +343,98 @@ def parse_meat(raw_name: str) -> ParsedMeat:
     if result.cut == "frango_inteiro" and result.species is None:
         result.species = "frango"
 
+    # Bacon as a cut only makes sense for pork. "bacon" elsewhere is a flavour
+    # or an ingredient of another product ("isca de frango swift bacon").
+    if result.cut == "bacon" and result.species not in (None, "suino"):
+        result.flags.append("bacon_flavor_or_ingredient")
+        return result
+
     if result.cut and result.species:
-        result.concept = f"{result.cut.replace('_', ' ').title()} {_species_label(result.species)}"
+        if result.cut == "linguica":
+            result.concept = _linguica_label(result)
+        else:
+            result.concept = (
+                f"{result.cut.replace('_', ' ').title()} {_species_label(result.species)}"
+            )
     return result
+
+
+def _match_first_cut(text: str) -> str | None:
+    """Return the earliest cut noun in the name (the product head).
+
+    When two cuts tie on position the more specific (longer) needle wins, so
+    e.g. "miolo da alcatra" beats "alcatra" and "coxinha da asa" beats "asa".
+    """
+    padded = f" {text} "
+    best: tuple[int, int, str] | None = None
+    for canonical, needles in CUTS:
+        for needle in needles:
+            pos = padded.find(f" {needle} ")
+            if pos == -1:
+                continue
+            length = len(needle)
+            if best is None or (pos, -length) < (best[0], -best[1]):
+                best = (pos, length, canonical)
+    return best[2] if best else None
+
+
+def _tight(text: str) -> str:
+    """ASCII tokens without spaces (catches "CAL.ABRESA" -> calabresa)."""
+    return "".join(text.split())
+
+
+def _linguica_type(expanded: str) -> str | None:
+    """Detect the linguiça 'tipo/linha' (calabresa, toscana, fininha, paio...)."""
+    tight = _tight(expanded)
+    for canonical, needles in _LINGUICA_TYPE_RULES:
+        for needle in needles:
+            if needle in tight:
+                return canonical
+    return None
+
+
+_LINGUICA_SPECIES_LABEL = {
+    "suino": "Suína",
+    "bovino": "Bovina",
+    "frango": "de Frango",
+    "peru": "de Peru",
+    "ave": "de Ave",
+}
+
+
+def _linguica_label(parsed: ParsedMeat) -> str:
+    if parsed.species == "vegetal" or parsed.cut_type == "vegana":
+        return "Linguiça Vegana"
+    if parsed.cut_type:
+        name = f"Linguiça {parsed.cut_type.title()}"
+        if parsed.species == "frango":
+            return f"{name} de Frango"
+        if parsed.species == "bovino":
+            return f"{name} Bovina"
+        return name
+    return f"Linguiça {_LINGUICA_SPECIES_LABEL.get(parsed.species or '', parsed.species or '')}"
+
+
+def _prepared_head(expanded: str) -> str | None:
+    padded = f" {expanded} "
+    for token in PREPARED_TOKENS:
+        if f" {token} " in padded:
+            return token
+    # "coxinha" (fried snack) is prepared; "coxinha da asa" (wing cut) is not.
+    if " coxinha " in padded and " asa " not in padded and " as " not in padded:
+        return "coxinha_frita"
+    return None
+
+
+def _has_any(tokens: str, needles: tuple[str, ...]) -> bool:
+    padded = f" {tokens} "
+    tight = "".join(tokens.split())
+    for needle in needles:
+        if f" {needle} " in padded:
+            return True
+        if needle in tight:
+            return True
+    return False
 
 
 def _expand(tokens: str) -> str:

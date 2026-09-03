@@ -92,6 +92,7 @@ def build_json(items: list[MeatItem]) -> dict[str, Any]:
                 "label": first.label,
                 "species": first.species,
                 "cut": first.cut,
+                "cut_type": first.cut_type,
                 "bone_state": first.bone_state,
                 "skin_state": first.skin_state,
                 "presentation": first.presentation,
