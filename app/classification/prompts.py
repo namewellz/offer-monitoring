@@ -9,6 +9,8 @@ product. The reply only returns ids, so results can be related back to the DB.
 
 from __future__ import annotations
 
+from app.classification.canonical import CANONICAL_CATEGORIES
+
 # The meat lines supported today. ``keywords`` drives candidate collection
 # (any raw name containing one of them), ``definition`` + ``examples`` teach the
 # LLM what the real product looks like, and ``flavours`` names the usual false
@@ -92,7 +94,10 @@ ACOUGUE_SYSTEM_PROMPT = (
     "na mesma categoria (o nome pode ter marca/peso).\n"
     "3) Não invente ids. Responda apenas com um objeto JSON válido no formato "
     '{"items": {"<id>": "<categoria>"}} — sem notas, sem texto fora do JSON, '
-    "sem quebras de linha dentro das aspas."
+    "sem quebras de linha dentro das aspas.\n"
+    "4) Use SEMPRE uma das CATEGORIAS CANÔNICAS listadas na mensagem (ou "
+    "'NAO_CARNE'). Não crie sinônimos/variantes (ex.: use 'Acém', não "
+    "'Acém Bovino'/'Acém em Cubos'; use 'Peito de Frango' como padrão de frango)."
 )
 
 
@@ -102,12 +107,14 @@ def build_acougue_prompt(
 ) -> str:
     lines = [f"{pid} — {name}" for pid, name in items]
     scope = f"\nContexto: itens do supermercado {retailer_label}." if retailer_label else ""
-    examples = ", ".join(ACOUGUE_CATEGORY_EXAMPLES)
+    canonical = "\n".join(f"- {c}" for c in CANONICAL_CATEGORIES)
     return (
-        "Classifique cada item abaixo na categoria canônica do açougue/frios. "
-        f"Exemplos de categorias: {examples}. Use 'NAO_CARNE' para itens que não "
-        "são produto cárneo de açougue/frios (comida pronta, sabor artificial, "
-        "petisco, etc.). Seja consistente e curto no rótulo.\n\n"
+        "Classifique cada item abaixo em UMA das CATEGORIAS CANÔNICAS listadas "
+        "(departamento de açougue/frios). Use 'NAO_CARNE' para itens que não são "
+        "produto cárneo de açougue/frios (comida pronta, sabor artificial, "
+        "petisco, etc.). Seja consistente: mesmo produto = mesma categoria; "
+        "não crie variações do nome.\n\n"
+        "CATEGORIAS CANÔNICAS:\n" + canonical + "\n\n"
         "Lista de itens (ID — nome):\n" + "\n".join(lines) + scope +
         '\n\nResponda APENAS com o JSON no formato exato {"items": {"<id>": '
         '"<categoria>"}}.'
