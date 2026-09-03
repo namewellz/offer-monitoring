@@ -24,6 +24,10 @@ _IDX = {
 
 _CACHE: dict[str, Any] = {"ts": 0.0, "payload": None, "use_llm": True}
 
+# Preços trocam a cada coleta agendada; 5min evita recálculo de ~13s a cada
+# requisição isolada sem sacrificar frescor (o warm-up mantém quente).
+_TTL = 300
+
 
 def _llm_index(db: Session) -> dict[int, dict[str, Any]]:
     """product_id -> {decision, category} using online LLM verdicts.
@@ -177,7 +181,7 @@ def butcher_comparison(
     """
     if (
         _CACHE["payload"] is None
-        or time.time() - _CACHE["ts"] > 60
+        or time.time() - _CACHE["ts"] > _TTL
         or _CACHE["use_llm"] != use_llm
     ):
         items, groups, info = _compute(db, use_llm)
@@ -191,3 +195,11 @@ def butcher_comparison(
         "llm": payload["info"],
         "groups": payload["groups"][:limit],
     }
+
+
+def warm_butcher_cache() -> None:
+    """Recompute e atualiza o cache (usado por thread de warm-up da API)."""
+    from app.db.session import SessionLocal
+
+    with SessionLocal() as db:
+        butcher_comparison(db, limit=300, use_llm=True)

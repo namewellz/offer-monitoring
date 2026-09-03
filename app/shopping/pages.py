@@ -281,11 +281,15 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
         chip.textContent = info.label + ' · ' + label(src.slug) + ' ' + fmt(src.price) + ' ' + info.unit;
         chip.title = 'Adicionar com quantidade 1 (ajuste na linha)';
         chip.onclick = async () => {
-          const r = await fetch('/shopping-lists/' + LIST_ID + '/items', {
-            method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({category:c, form:f, retailer:src.slug, qty:1})
-          });
-          if (r.ok) location.reload(); else alert('Falha ao adicionar');
+          chip.disabled = true;
+          try {
+            const r = await fetch('/shopping-lists/' + LIST_ID + '/items', {
+              method: 'POST', headers: {'Content-Type':'application/json'},
+              body: JSON.stringify({category:c, form:f, retailer:src.slug, qty:1})
+            });
+            if (r.ok) { addItem(await r.json()); } else { alert('Falha ao adicionar'); }
+          } catch (e) { alert('Falha ao adicionar'); }
+          chip.disabled = false;
         };
         forms.appendChild(chip);
       }
@@ -298,8 +302,72 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
   }
   search.addEventListener('input', renderPick);
 
-  const rows = [...document.querySelectorAll('#items tr.sli')];
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  function makeRow(it) {
+    const info = ROWS[key(it.category, it.form)];
+    const sources = info ? info.sources : [];
+    const unit = info ? info.unit : 'kg';
+    const lab = info ? info.label : it.form;
+    const dept = info ? info.department : 'Açougue';
+    let chosen = it.retailer || (sources[0] ? sources[0].slug : '');
+    if (sources.length && !sources.some(s => s.slug === chosen)) chosen = sources[0].slug;
+    const opts = sources.map(s =>
+      '<option value="' + esc(s.slug) + '"' + (s.slug === chosen ? ' selected' : '') + '>' +
+      esc(label(s.slug)) + ' — ' + fmt(s.price) + '</option>'
+    ).join('') || '<option value="">—</option>';
+    const base = sources.find(s => s.slug === chosen) || sources[0];
+    const detParts = [];
+    if (base && base.store) detParts.push(esc(base.store));
+    if (base && base.sample) detParts.push(esc(base.sample));
+    const qty = parseFloat(it.qty) || 1;
+    const tr = document.createElement('tr'); tr.className = 'sli'; tr.dataset.id = it.id;
+    tr.innerHTML =
+      "<td><input type='hidden' class='cat' value='" + esc(it.category) + "'>" +
+      "<input type='hidden' class='formv' value='" + esc(it.form) + "'>" +
+      "<span class='dept'>" + esc(dept) + "</span>" +
+      "<div class='sli-item'><h4>" + esc(it.category) + "</h4>" +
+      "<span class='uni'>" + esc(lab) + " · " + esc(unit) + "</span>" +
+      "<span class='detail'>" + detParts.join(' · ') + "</span></div></td>" +
+      "<td><select class='src'>" + opts + "</select></td>" +
+      "<td><div class='qtywrap'><input class='qty' type='number' min='0.1' step='0.1' value='" + qty + "'><span class='uk'>" + esc(unit) + "</span></div></td>" +
+      "<td class='price'>—</td>" +
+      "<td><input class='note' type='text' placeholder='obs.' value=''></td>" +
+      "<td><button class='del rm' type='button'>×</button></td>";
+    return tr;
+  }
+  function bindRow(tr) {
+    const id = tr.dataset.id;
+    tr.querySelector('select.src').addEventListener('change', function(){ persist(id, {retailer: this.value}); compute(); });
+    tr.querySelector('input.qty').addEventListener('input', function(){ persist(id, {qty: this.value}); compute(); });
+    tr.querySelector('input.note').addEventListener('change', function(){ persist(id, {note: this.value}); });
+    tr.querySelector('.rm').addEventListener('click', async function(){
+      if (!confirm('Remover item?')) return;
+      this.disabled = true;
+      const r = await fetch('/shopping-lists/items/' + id + '/delete', {method:'POST'});
+      if (r.ok) { tr.remove(); compute(); } else { this.disabled = false; alert('Falha ao remover'); }
+    });
+  }
+  const tbody = document.getElementById('items');
+  function addItem(it) {
+    const k = key(it.category, it.form);
+    let existing = null;
+    for (const tr of tbody.querySelectorAll('tr.sli')) {
+      if (key(tr.querySelector('.cat').value, tr.querySelector('.formv').value) === k) { existing = tr; break; }
+    }
+    if (existing) {
+      existing.querySelector('input.qty').value = parseFloat(it.qty) || 1;
+      const sel = existing.querySelector('select.src');
+      if (sel.querySelector('option[value="' + it.retailer + '"]')) sel.value = it.retailer;
+    } else {
+      const tr = makeRow(it);
+      tbody.appendChild(tr);
+      bindRow(tr);
+    }
+    search.value = ''; renderPick();
+    compute();
+  }
   function compute() {
+    const rows = [...document.querySelectorAll('#items tr.sli')];
     let total = 0, totalmin = 0;
     for (const tr of rows) {
       const c = tr.querySelector('.cat').value, f = tr.querySelector('.formv').value;
@@ -337,17 +405,7 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
       });
     } catch (e) {}
   }
-  for (const tr of rows) {
-    const id = tr.dataset.id;
-    tr.querySelector('select.src').addEventListener('change', function(){ persist(id, {retailer: this.value}); compute(); });
-    tr.querySelector('input.qty').addEventListener('input', function(){ persist(id, {qty: this.value}); compute(); });
-    tr.querySelector('input.note').addEventListener('change', function(){ persist(id, {note: this.value}); });
-    tr.querySelector('.rm').addEventListener('click', async function(){
-      if (!confirm('Remover item?')) return;
-      await fetch('/shopping-lists/items/' + id + '/delete', {method:'POST'});
-      location.reload();
-    });
-  }
+  for (const tr of [...document.querySelectorAll('#items tr.sli')]) bindRow(tr);
   compute();
   renderPick();
 })();

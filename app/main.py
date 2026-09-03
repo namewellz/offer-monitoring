@@ -82,8 +82,37 @@ from app.shopping.pages import render_builder, render_index
 configure_logging()
 
 
+def _butcher_warm_loop() -> None:
+    """Mantém o cache do comparativo de Açougue quente (cálculo ~13s).
+
+    O primeiro warm é síncrono no startup (antes de servir requisições); este
+    daemon apenas re-aquece periodicamente para o TTL nunca expirar com o
+    usuário esperando. Falhas (ex.: banco indisponível) são engolidas.
+    """
+    import time as _time
+
+    while True:
+        _time.sleep(180)
+        try:
+            from app.enrichment.butcher import warm_butcher_cache
+
+            warm_butcher_cache()
+        except Exception:
+            pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import threading
+
+    # Aquece antes de aceitar tráfego: o primeiro GET nunca fica 13s frio.
+    try:
+        from app.enrichment.butcher import warm_butcher_cache
+
+        warm_butcher_cache()
+    except Exception:
+        pass
+    threading.Thread(target=_butcher_warm_loop, daemon=True, name="butcher-warm").start()
     yield
 
 
