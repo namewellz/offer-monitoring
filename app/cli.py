@@ -26,6 +26,7 @@ from app.catalog.persistence import (
 from app.catalog.saovicente import SaoVicenteCatalogClient
 from app.catalog.savegnago import SavegnagoCatalogClient
 from app.catalog.tenda import TendaCatalogClient
+from app.catalog.v2.backfill import backfill_v2
 from app.db.models import FlyerSource, Retailer, Store
 from app.db.session import SessionLocal
 from app.discovery.service import discover_source
@@ -70,6 +71,7 @@ def main() -> None:
     discover.add_argument("--source", required=True)
     commands.add_parser("discover-all")
     commands.add_parser("reclassify-catalog")
+    commands.add_parser("backfill-v2")
     extract = commands.add_parser("extract")
     extract.add_argument("--flyer", required=True)
     extract.add_argument("--strategy")
@@ -100,6 +102,13 @@ def main() -> None:
         with SessionLocal() as db:
             changed = reclassify_catalog_departments(db)
         print(f"Reclassified {changed} catalog products")
+        return
+    if args.command == "backfill-v2":
+        with SessionLocal() as db:
+            result = backfill_v2(db)
+        print("Backfilled v2 catalog model:")
+        for key, value in result.items():
+            print(f"  {key}: {value}")
         return
     if args.command == "arena-catalog":
         catalog = asyncio.run(ArenaCatalogClient().collect())

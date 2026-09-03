@@ -14,6 +14,27 @@ from app.annotation.routes import router as annotation_router
 from app.catalog.dashboard import RETAILERS, render_catalog_dashboard
 from app.catalog.taxonomy import CANONICAL_DEPARTMENTS
 from app.catalog.update_dashboard import render_update_dashboard
+from app.catalog.v2.read import (
+    count_current_listings as v2_count_current_listings,
+)
+from app.catalog.v2.read import (
+    current_listings as v2_current_listings,
+)
+from app.catalog.v2.read import (
+    department_counts as v2_department_counts,
+)
+from app.catalog.v2.read import (
+    latest_runs as v2_latest_runs,
+)
+from app.catalog.v2.read import (
+    price_history_results as v2_price_history_results,
+)
+from app.catalog.v2.read import (
+    price_results as v2_price_results,
+)
+from app.catalog.v2.read import (
+    row_result as v2_row_result,
+)
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.models import (
@@ -609,6 +630,114 @@ def catalog_price_history(
     )
 
 
+@app.get("/catalog/v2/price-changes")
+def v2_catalog_price_changes(
+    product: str | None = None,
+    retailer: str | None = None,
+    department: str | None = None,
+    direction: str = "all",
+    minimum_percent: float = 0,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+):
+    try:
+        return v2_price_results(
+            db,
+            product=product,
+            retailer=retailer,
+            department=department,
+            direction=direction,
+            minimum_percent=minimum_percent,
+            view="changes",
+        )[: min(max(limit, 1), 1000)]
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+@app.get("/catalog/v2/prices")
+def v2_catalog_prices(
+    product: str | None = None,
+    retailer: str | None = None,
+    department: str | None = None,
+    direction: str = "all",
+    minimum_percent: float = 0,
+    limit: int = 500,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    fast = department is None and direction == "all" and minimum_percent == 0
+    if fast:
+        rows = v2_current_listings(
+            db,
+            product=product,
+            retailer=retailer,
+            limit=min(max(limit, 1), 1000),
+            offset=max(offset, 0),
+        )
+        return [v2_row_result(row) for row in rows]
+    try:
+        results = v2_price_results(
+            db,
+            product=product,
+            retailer=retailer,
+            department=department,
+            direction=direction,
+            minimum_percent=minimum_percent,
+            view="all",
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    return results[max(offset, 0) : max(offset, 0) + min(max(limit, 1), 1000)]
+
+
+@app.get("/catalog/v2/offers")
+def v2_catalog_offers(
+    product: str | None = None,
+    retailer: str | None = None,
+    department: str | None = None,
+    limit: int = 500,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    results = v2_price_results(
+        db,
+        product=product,
+        retailer=retailer,
+        department=department,
+        view="offers",
+    )
+    return results[max(offset, 0) : max(offset, 0) + min(max(limit, 1), 1000)]
+
+
+@app.get("/catalog/v2/price-history")
+def v2_catalog_price_history(
+    product_id: int | None = None,
+    ean: str | None = None,
+    retailer: str | None = None,
+    limit: int = 500,
+    db: Session = Depends(get_db),
+):
+    try:
+        return v2_price_history_results(
+            db,
+            product_id=product_id,
+            ean=ean,
+            retailer=retailer,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+@app.get("/catalog/v2/departments")
+def v2_catalog_departments(db: Session = Depends(get_db)):
+    counts = v2_department_counts(db)
+    return [
+        {"name": department, "product_count": counts.get(department, 0)}
+        for department in CANONICAL_DEPARTMENTS
+    ]
+
+
 @app.post("/catalog/collections", status_code=202)
 def request_all_catalog_collections():
     jobs = [
@@ -738,50 +867,43 @@ def catalog_dashboard(
     if view not in {"all", "offers", "changes"}:
         raise HTTPException(400, "view must be all, offers or changes")
     page_size = 100
-    include_unchanged = view in {"all", "offers"}
-    offers_only = view == "offers"
-    total_results = catalog_price_result_count(
-        db,
-        product=product,
-        retailer=retailer,
-        department=department,
-        direction=direction,
-        minimum_percent=minimum_percent,
-        include_unchanged=include_unchanged,
-        offers_only=offers_only,
+    fast_path = (
+        view == "all"
+        and department is None
+        and direction == "all"
+        and minimum_percent == 0
     )
-    total_pages = max(1, (total_results + page_size - 1) // page_size)
-    page = min(max(page, 1), total_pages)
-    results = catalog_price_change_results(
-        db,
-        product=product,
-        retailer=retailer,
-        department=department,
-        direction=direction,
-        minimum_percent=minimum_percent,
-        limit=page_size,
-        offset=(page - 1) * page_size,
-        include_unchanged=include_unchanged,
-        offers_only=offers_only,
-    )
-    latest = db.execute(
-        select(CatalogRun, Retailer, Store)
-        .join(Retailer, Retailer.id == CatalogRun.retailer_id)
-        .outerjoin(Store, Store.id == CatalogRun.store_id)
-        .where(CatalogRun.id.in_(latest_catalog_run_ids()))
-        .order_by(CatalogRun.collected_at.desc())
-    ).all()
-    latest_runs = [
-        {
-            "retailer": source.name,
-            "store": catalog_store.name if catalog_store else None,
-            "product_count": run.product_count,
-            "collected_at": run.collected_at,
-        }
-        for run, source, catalog_store in latest
-    ]
+    if fast_path:
+        total_results = v2_count_current_listings(
+            db, product=product, retailer=retailer
+        )
+        total_pages = max(1, (total_results + page_size - 1) // page_size)
+        page = min(max(page, 1), total_pages)
+        rows = v2_current_listings(
+            db,
+            product=product,
+            retailer=retailer,
+            limit=page_size,
+            offset=(page - 1) * page_size,
+        )
+        page_results = [v2_row_result(row) for row in rows]
+    else:
+        results = v2_price_results(
+            db,
+            product=product,
+            retailer=retailer,
+            department=department,
+            direction=direction,
+            minimum_percent=minimum_percent,
+            view=view,
+        )
+        total_results = len(results)
+        total_pages = max(1, (total_results + page_size - 1) // page_size)
+        page = min(max(page, 1), total_pages)
+        page_results = results[(page - 1) * page_size : page * page_size]
+    latest_runs = v2_latest_runs(db)
     return render_catalog_dashboard(
-        results=results,
+        results=page_results,
         product=product,
         retailer=retailer,
         department=department,

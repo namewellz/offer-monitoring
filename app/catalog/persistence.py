@@ -6,6 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.catalog.taxonomy import canonical_department
+from app.catalog.v2.ingest import ingest_catalog_v2
+from app.core.config import get_settings
 from app.db.models import (
     CatalogPriceObservation,
     CatalogProduct,
@@ -190,6 +192,12 @@ def _persist_catalog(
                 tier_prices=raw.get("tier_prices") or [],
             )
         )
+    # Dual-write into the v2 model (section 20.3 of the architecture document).
+    # Both models share this transaction: a v2 failure rolls the legacy write
+    # back too, so no partial merge is ever visible. Set CATALOG_V2_ENABLED=false
+    # to disable v2 without reverting the code.
+    if get_settings().catalog_v2_enabled:
+        ingest_catalog_v2(db, catalog, retailer=retailer, store=store)
     db.commit()
     return run
 

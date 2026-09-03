@@ -17,5 +17,10 @@ outputs/
 *.tar.gz
 *.bak
 
+# debug scrapes
+artifacts/sv_grid_sample.json
+artifacts/sv_pdp.html
+artifacts/sv_pdp_intenso.html
+
 .idea/
 .vscode/

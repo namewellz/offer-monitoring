@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     discovery_cron: str = "0 */6 * * *"
     catalog_collection_enabled: bool = True
     catalog_collection_cron: str = "0 6,14,22 * * *"
+    catalog_v2_enabled: bool = True
     davita_api_token: str | None = None
     davita_token_file: Path = Path("/run/secrets/davita_dotenv")
     assai_username: str | None = None
