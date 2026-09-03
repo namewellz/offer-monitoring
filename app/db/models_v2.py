@@ -437,3 +437,23 @@ class LlmClassification(_BigIntId, Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     __table_args__ = (UniqueConstraint("source_product_id", "line_key"),)
+
+
+class LlmCategoryLabel(_BigIntId, Base):
+    """Canonical label for each category name the LLM returns.
+
+    ``label`` is the raw category as the model writes it (e.g. "Acém Bovino");
+    ``canonical`` is the name we display/group by ("Acém"). Editing ``canonical``
+    lets the reviewer merge synonyms and fix names over time, without a
+    reclassification run.
+    """
+
+    __tablename__ = "llm_category_labels"
+    label: Mapped[str] = mapped_column(String(160), unique=True)
+    canonical: Mapped[str] = mapped_column(String(160), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

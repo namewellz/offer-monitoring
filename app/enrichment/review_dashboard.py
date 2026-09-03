@@ -229,6 +229,7 @@ def render_butcher_review(payload: dict[str, Any]) -> str:
 <nav class="view-tabs" aria-label="Visões do Açougue">
 <a href="/catalog/cuts">Comparativo R$/kg</a>
 <a class="active" href="/catalog/butcher-review">Revisão de classificação</a>
+<a href="/catalog/categories">Categorias</a>
 </nav>
 <section class="hero"><div><span class="eyebrow">Motor determinístico · v2</span>
 <h1>Revisão do Açougue</h1>

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.catalog.v2.read import current_listings
+from app.classification.canonical import canonical_map, seed_categories
 from app.db.models_v2 import LlmClassification
 from app.enrichment.resolver import MeatItem
 
@@ -89,6 +90,10 @@ def coarse_form(parsed: Any) -> str:
 def _compute(db: Session, use_llm: bool) -> tuple[int, list[dict[str, Any]], dict[str, Any]]:
     llm = _llm_index(db) if use_llm else {}
     have_llm = bool(llm)
+    canonical: dict[str, str] = {}
+    if have_llm:
+        seed_categories(db)
+        canonical = canonical_map(db)
 
     items: list[MeatItem] = []
     for row in current_listings(db):
@@ -111,7 +116,7 @@ def _compute(db: Session, use_llm: bool) -> tuple[int, list[dict[str, Any]], dic
                 continue
         items.append(item)
 
-    # group by (category, coarse sale-form) -> comparable R$/kg rows
+    # group by (canonical category, coarse sale-form) -> comparable R$/kg rows
     rows: dict[tuple[str, str], dict[str, Any]] = {}
     for item in items:
         parsed = item.parsed
@@ -119,7 +124,8 @@ def _compute(db: Session, use_llm: bool) -> tuple[int, list[dict[str, Any]], dic
         if form == "moida":
             category = "Carne Moída"
         elif have_llm and (llm.get(item.product_id) or {}).get("category"):
-            category = (llm.get(item.product_id) or {})["category"]
+            raw = (llm.get(item.product_id) or {})["category"]
+            category = canonical.get(raw, raw) or raw
         else:
             category = parsed.label or parsed.raw_name
         key = (category, form)

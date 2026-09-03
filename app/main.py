@@ -35,6 +35,12 @@ from app.catalog.v2.read import (
 from app.catalog.v2.read import (
     row_result as v2_row_result,
 )
+from app.classification.canonical import (
+    CANONICAL_CATEGORIES,
+    category_counts,
+    seed_categories,
+    set_canonicals,
+)
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.models import (
@@ -55,6 +61,7 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.enrichment.butcher import butcher_comparison
+from app.enrichment.categories_dashboard import render_categories_page
 from app.enrichment.dashboard import render_butcher_dashboard
 from app.enrichment.review import butcher_review
 from app.enrichment.review_dashboard import render_butcher_review
@@ -791,6 +798,27 @@ def butcher_review_page(db: Session = Depends(get_db)):
 def butcher_review_json(db: Session = Depends(get_db)):
     """JSON payload behind the review screen (same shape as the exported file)."""
     return butcher_review(db)
+
+
+@app.get("/catalog/categories", response_class=HTMLResponse, include_in_schema=False)
+def categories_page(db: Session = Depends(get_db)):
+    """Painel de edição das categorias canônicas do Açougue."""
+    seed_categories(db)
+    return render_categories_page(category_counts(db), CANONICAL_CATEGORIES)
+
+
+@app.get("/catalog/categories.json")
+def categories_json(db: Session = Depends(get_db)):
+    seed_categories(db)
+    return {"base": list(CANONICAL_CATEGORIES), "labels": category_counts(db)}
+
+
+@app.post("/catalog/categories")
+def categories_update(updates: dict, db: Session = Depends(get_db)):
+    """Salva os nomes canônicos (updates: [{label, canonical}])."""
+    seed_categories(db)
+    payload = updates.get("updates") or []
+    return set_canonicals(db, payload)
 
 
 @app.post("/catalog/collections", status_code=202)
