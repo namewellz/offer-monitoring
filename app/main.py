@@ -39,6 +39,7 @@ from app.classification.canonical import (
     CANONICAL_CATEGORIES,
     category_counts,
     distinct_canonicals,
+    normalize_all,
     seed_categories,
     set_canonicals,
 )
@@ -826,6 +827,18 @@ def categories_update(updates: dict, db: Session = Depends(get_db)):
     seed_categories(db)
     payload = updates.get("updates") or []
     return set_canonicals(db, payload)
+
+
+@app.post("/catalog/categories/normalize")
+def categories_normalize(db: Session = Depends(get_db)):
+    """Aplica a normalização automática de nomes canônicos (bife/miúdo/espécie)."""
+    seed_categories(db)
+    result = normalize_all(db, commit=True)
+    return {
+        "labels": result["labels"],
+        "changed": result["changed"],
+        "canonicals_after": len(distinct_canonicals(db)),
+    }
 
 
 @app.post("/catalog/collections", status_code=202)

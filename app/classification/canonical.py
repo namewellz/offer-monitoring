@@ -11,12 +11,63 @@ Two concerns:
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models_v2 import LlmCategoryLabel, LlmClassification
+
+
+def _fold_ascii(text: str) -> str:
+    normalized = unicodedata.normalize("NFKD", text or "")
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch)).lower()
+
+
+_SPECIES_ASCII = {
+    "bovino", "bovina", "suino", "suina", "frango", "peru", "peixe", "ave",
+    "boi", "porco", "cordeiro", "pato", "chester", "galinha", "leitao",
+}
+_CONNECTORS = {"a", "de", "da", "do", "em", "com", "e", "as", "os", "das", "dos"}
+_SKIP_STRIP_HEAD = _SPECIES_ASCII | {"empanado", "empanada", "milanesa", "inteiro"}
+
+
+def normalize_category(name: str) -> str:
+    """Deterministic, conservative cleanup used to seed canonical names.
+
+    Only removes *redundant* leading qualifiers (Bife/Miúdo/Recorte/Espetinho
+    when a clear head follows) and a *final* bovine/porcine species adjective
+    ("Acém Bovino" -> "Acém"). Detection runs on the ascii-folded text but the
+    original spelling/case of what stays is preserved. Ambiguous cases are left
+    untouched (the reviewer fixes on the panel).
+    """
+    original = " ".join(name.split())
+    if not original:
+        return original
+    folded = _fold_ascii(original)
+
+    start = 0
+    for prefix in ("recorte de ", "recorte ", "miudo ", "bife de ", "bife "):
+        if folded.startswith(prefix):
+            rest = folded[len(prefix):].strip()
+            first = rest.split()[0] if rest.split() else ""
+            if first and first not in _SKIP_STRIP_HEAD and first not in _CONNECTORS:
+                start = len(prefix)
+                break
+
+    # trailing species check runs on the substring AFTER the prefix (indices map
+    # 1:1 between the folded and original strings)
+    sub = folded[start:]
+    match = re.search(r"\s+(bovino|bovina|suino|suina)$", sub)
+    end = (start + match.start()) if match else len(folded)
+
+    kept = original[start:end].strip()
+    kept_folded = _fold_ascii(kept)
+    if not kept or (len(kept_folded.split()) <= 1 and kept_folded in _SPECIES_ASCII):
+        return original
+    return " ".join(kept.split())
 
 # Curated closed vocabulary used to steer the LLM (and shown on the screen).
 CANONICAL_CATEGORIES: tuple[str, ...] = (
@@ -76,7 +127,8 @@ def seed_categories(db: Session) -> int:
     added = 0
     for label in labels:
         if label and label not in existing:
-            db.add(LlmCategoryLabel(label=label, canonical=label))
+            canonical = normalize_category(label) or label
+            db.add(LlmCategoryLabel(label=label, canonical=canonical))
             added += 1
     if added:
         db.commit()
@@ -151,3 +203,23 @@ def set_canonicals(db: Session, updates: list[dict[str, Any]]) -> dict[str, int]
             updated += 1
     db.commit()
     return {"created": created, "updated": updated}
+
+
+def normalize_all(db: Session, commit: bool = True) -> dict[str, Any]:
+    """Preview or apply canonical normalization over every stored label.
+
+    With ``commit=False`` returns the mapping without writing, for review.
+    """
+    rows = db.execute(select(LlmCategoryLabel)).scalars().all()
+    plan: dict[str, str] = {}
+    for row in rows:
+        normalized = normalize_category(row.label)
+        if normalized and normalized != row.canonical:
+            plan[row.label] = normalized
+    if commit and plan:
+        for row in rows:
+            target = plan.get(row.label)
+            if target:
+                row.canonical = target
+        db.commit()
+    return {"labels": len(rows), "changed": len(plan), "plan": plan}
