@@ -64,3 +64,43 @@ def collect_candidates(
             entry["raw_name"] = raw_name
     ordered = sorted(by_product.values(), key=lambda p: (p["retailer"], p["raw_name"]))
     return ordered[:limit] if limit else ordered
+
+
+def collect_meat_candidates(
+    db: Session,
+    retailer: str | None = None,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """All priced products that look like Açougue (meat-ish), one row per id.
+
+    An item is included when the deterministic parser considers it meat
+    (species+cut) OR its raw name mentions a cut/species/type — i.e. the pool we
+    want the LLM to review, including the false positives we want it to reject.
+    """
+    from app.enrichment.meat import parse_meat
+    from app.enrichment.review import _mentions_meat
+
+    by_product: dict[int, dict[str, Any]] = {}
+    for row in current_listings(db):
+        raw_name = row[_IDX["raw_name"]] or ""
+        effective = row[_IDX["effective_cents"]]
+        retailer_slug = row[_IDX["retailer"]]
+        if retailer is not None and retailer_slug != retailer:
+            continue
+        if effective is None or effective <= 0:
+            continue
+        parsed = parse_meat(raw_name)
+        if not (parsed.is_meat or _mentions_meat(raw_name)):
+            continue
+        pid = row[_IDX["product_id"]]
+        entry = by_product.get(pid)
+        if entry is None:
+            by_product[pid] = {
+                "product_id": pid,
+                "raw_name": raw_name,
+                "retailer": retailer_slug,
+            }
+        elif len(raw_name) > len(entry["raw_name"]):
+            entry["raw_name"] = raw_name
+    ordered = sorted(by_product.values(), key=lambda p: (p["retailer"], p["raw_name"]))
+    return ordered[:limit] if limit else ordered

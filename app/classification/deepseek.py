@@ -153,3 +153,32 @@ def parse_ids_json(content: str, provided_ids: set[int]) -> tuple[dict[int, str]
             # as the real product)
             decisions[pid] = "reject"
     return decisions, reasons
+
+
+def parse_categories(content: str) -> dict[int, tuple[str, str]]:
+    """Parse the Açougue reply: {"items": {"<id>": {"category","note"}}}.
+
+    Returns ``{product_id: (category, note)}``. A missing category is kept as
+    ``NAO_CARNE`` so every product still gets a verdict.
+    """
+    try:
+        payload = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise DeepSeekError(f"Resposta da LLM não é JSON válido: {content[:300]}") from exc
+    raw_items = payload.get("items")
+    if not isinstance(raw_items, dict):
+        raise DeepSeekError("Resposta sem o campo 'items' (objeto id→categoria).")
+
+    out: dict[int, tuple[str, str]] = {}
+    for key, value in raw_items.items():
+        try:
+            pid = int(key)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(value, dict):
+            out[pid] = ("NAO_CARNE", "")
+            continue
+        category = str(value.get("category") or "NAO_CARNE").strip() or "NAO_CARNE"
+        note = str(value.get("note") or "").strip()
+        out[pid] = (category, note)
+    return out

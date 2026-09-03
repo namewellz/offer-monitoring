@@ -43,6 +43,16 @@ _PAGE_CSS = """
 .chip.spec{background:#eaf6f0;color:#145c42}
 .chip.type{background:#eef2ff;color:#3a55c8}
 .chip.warn{background:#fff4e6;color:#9a6a00}
+.llm-badge{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;
+ border-radius:50%;font-size:11px;font-weight:900;margin-right:6px;vertical-align:-2px;flex:none}
+.llm-badge.ok{background:#eaf9f1;color:#067647}
+.llm-badge.no{background:#fff0ee;color:var(--red)}
+.llm-cat{display:inline-block;margin-left:8px;font-size:10.5px;color:#8a5a00;background:#fff7e8;
+ border:1px solid #f5e3c3;padding:1px 6px;border-radius:99px;font-family:Inter,system-ui,sans-serif}
+.fam-llm{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;font-size:11px;color:var(--muted)}
+.llm-strip{display:flex;gap:14px;flex-wrap:wrap;align-items:center;background:#f1f6ff;border:1px solid #d9e5ff;
+ border-radius:14px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:#2c3e5c}
+.llm-strip strong{color:#175cd3}
 .fam-meta{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none}
 .fam-price{font-weight:800;font-size:13px;color:var(--green)}
 .fam-price .dim{color:#9aa39f;font-weight:600}
@@ -78,27 +88,46 @@ def _family_card(family: dict[str, Any]) -> str:
     for attr in _attr_list(family):
         chips.append(f'<span class="chip">{escape(attr)}</span>')
 
+    llm_total = family.get("llm_total_count") or 0
+    if llm_total:
+        llm_ok = family.get("llm_ok_count") or 0
+        cls = "chip spec" if llm_ok == llm_total else "chip warn"
+        chips.append(
+            f'<span class="{cls}">LLM {llm_ok}/{llm_total} aprovados</span>'
+        )
+
     # build item rows
     rows: list[str] = []
     for item in family["items"]:
         store = item.get("store") or ""
         price = item.get("price_kg")
-        price_cell = "—"
         if price is not None:
             cls = ' class="price best"' if item.get("cheapest") else ' class="price"'
-            price_cell = (
-                f"<td{cls}>{_brl(price)}</td>"
-            )
+            price_cell = f"<td{cls}>{_brl(price)}</td>"
         else:
             price_cell = '<td class="price">—</td>'
         source = RETAILER_LABELS.get(item["source"], item["source"])
         store_html = f'<span class="muted">{escape(store)}</span>' if store else ""
+
+        llm_decision = item.get("llm_decision")
+        data_llm = llm_decision or "none"
+        badge = ""
+        if llm_decision == "accept":
+            badge = '<span class="llm-badge ok" title="Aprovado pela LLM">✓</span>'
+        elif llm_decision == "reject":
+            badge = '<span class="llm-badge no" title="Rejeitado pela LLM">✗</span>'
+        llm_cat = ""
+        category = item.get("llm_category")
+        if llm_decision == "accept" and category:
+            llm_cat = f'<span class="llm-cat">{escape(category)}</span>'
+        name_cell = (
+            f'<td class="name" title="product_id={item.get("product_id")}">'
+            f"{badge}{escape(item['raw_name'])}{llm_cat}</td>"
+        )
         rows.append(
-            "<tr>"
+            f'<tr data-llm="{data_llm}">'
             f'<td>{escape(source)} {store_html}</td>'
-            f'{price_cell}'
-            f'<td class="name" title="product_id={item.get("product_id")}">{escape(item["raw_name"])}</td>'
-            "</tr>"
+            f"{price_cell}{name_cell}</tr>"
         )
     item_table = (
         '<div class="review-items"><table>'
@@ -161,6 +190,20 @@ def render_butcher_review(payload: dict[str, Any]) -> str:
     families = payload["families"]
     excluded = payload.get("excluded") or {}
     excluded_total = payload.get("excluded_total") or sum(excluded.values())
+    llm = payload.get("llm") or {}
+
+    llm_strip = ""
+    if llm.get("classified_items"):
+        llm_strip = (
+            '<div class="llm-strip">'
+            f'<span>🛰️ <strong>{llm.get("classified_items")}</strong> itens já '
+            f'avaliados pela LLM</span>'
+            f'<span>✓ aprovados: <strong>{llm.get("accepted")}</strong></span>'
+            f'<span>✗ rejeitados: <strong>{llm.get("rejected")}</strong></span>'
+            "<span style='margin-left:auto'>Use “Ocultar rejeitados pela LLM” para "
+            "filtrar os falsos positivos.</span>"
+            "</div>"
+        )
 
     exclusion_detail = " · ".join(
         f"{count} {name.replace('_', ' ')}"
@@ -206,6 +249,7 @@ são ignoradas na revisão.</p>
 {_metric(payload['families_with_associations'], 'Famílias com ≥2 fontes', 'possível comparação entre redes')}
 {_metric(excluded_total, 'Excluídos pelo parser', 'não-carne / preparados / vegano')}
 </div>
+{llm_strip}
 <div class="review-tools">
 <div class="review-search">
 <input id="q" type="search" placeholder="Filtrar por corte, tipo ou nome do produto…" autocomplete="off">
@@ -213,6 +257,7 @@ são ignoradas na revisão.</p>
 </div>
 <label class="review-toggle"><input id="only-assoc" type="checkbox"> Só com ≥2 fontes</label>
 <label class="review-toggle"><input id="hide-single" type="checkbox"> Ocultar 1 item</label>
+<label class="review-toggle"><input id="hide-llm-reject" type="checkbox"> Ocultar rejeitados pela LLM</label>
 <span class="review-count" id="count"></span>
 <button class="page-button" id="expand-all" type="button" style="background:var(--mint)">Expandir tudo</button>
 </div>
@@ -224,6 +269,7 @@ são ignoradas na revisão.</p>
   const q=document.getElementById('q');
   const onlyAssoc=document.getElementById('only-assoc');
   const hideSingle=document.getElementById('hide-single');
+  const hideReject=document.getElementById('hide-llm-reject');
   const count=document.getElementById('count');
   const cards=[...root.querySelectorAll('.review-family')];
   function matches(el){{
@@ -238,8 +284,16 @@ são ignoradas na revisão.</p>
   }}
   function apply(){{
     let n=0;
+    const rejectHidden=hideReject.checked;
     for(const el of cards){{
-      const show=matches(el);
+      let show=matches(el);
+      el.querySelectorAll('tbody tr').forEach(r=>r.style.display='');
+      if(rejectHidden){{
+        el.querySelectorAll('tr[data-llm="reject"]').forEach(r=>r.style.display='none');
+        const visible=el.querySelectorAll('tbody tr').length>0
+          && [...el.querySelectorAll('tbody tr')].some(r=>r.style.display!=='none');
+        show=show&&visible;
+      }}
       el.style.display=show?'':'none';
       if(show)n++;
     }}
@@ -248,6 +302,7 @@ são ignoradas na revisão.</p>
   q.addEventListener('input',apply);
   onlyAssoc.addEventListener('change',apply);
   hideSingle.addEventListener('change',apply);
+  hideReject.addEventListener('change',apply);
   document.getElementById('expand-all').addEventListener('click',function(){{
     const all=cards.every(c=>c.open);
     for(const el of cards) if(el.style.display!=='none') el.open=!all;

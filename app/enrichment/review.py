@@ -13,9 +13,11 @@ import time
 from collections import defaultdict
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.catalog.v2.read import current_listings
+from app.db.models_v2 import LlmClassification
 from app.enrichment.meat import (
     _LINGUICA_TYPE_RULES,
     CUTS,
@@ -195,6 +197,74 @@ def butcher_review(db: Session) -> dict[str, Any]:
     """Full review payload with a short TTL cache (mirrors butcher.py)."""
     if _CACHE["payload"] is None or time.time() - _CACHE["ts"] > 60:
         items, excluded, other_depts, scanned = _collect(db)
-        _CACHE["payload"] = build_review_payload(items, excluded, other_depts, scanned)
+        payload = build_review_payload(items, excluded, other_depts, scanned)
+        payload["llm"] = _llm_overlay(db, payload)
+        _CACHE["payload"] = payload
         _CACHE["ts"] = time.time()
     return _CACHE["payload"]
+
+
+def _llm_overlay(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+    """Attach DeepSeek verdicts (llm_classifications) to each family item.
+
+    For a product with several rows (per-line + Açougue run), ``accept`` wins and
+    the latest category is kept, so the reviewer sees the LLM decision.
+    """
+    rows = db.execute(
+        select(
+            LlmClassification.source_product_id,
+            LlmClassification.line_key,
+            LlmClassification.decision,
+            LlmClassification.reason,
+            LlmClassification.created_at,
+        ).order_by(LlmClassification.created_at)
+    ).all()
+    by_product: dict[int, dict[str, Any]] = {}
+    for source_product_id, line_key, decision, reason, created_at in rows:
+        candidate = {
+            "decision": decision,
+            "category": None if line_key in ("reject", "NAO_CARNE") else line_key,
+            "reason": reason,
+            "_at": created_at,
+        }
+        current = by_product.get(source_product_id)
+        if current is None:
+            by_product[source_product_id] = candidate
+            continue
+        if decision == "accept":
+            if current["decision"] != "accept" or (
+                candidate["_at"] is not None
+                and current["_at"] is not None
+                and candidate["_at"] > current["_at"]
+            ):
+                by_product[source_product_id] = candidate
+        # a later "reject" does not override an existing "accept"
+    for verdict in by_product.values():
+        verdict.pop("_at", None)
+    classified = accepted = rejected = 0
+    for family in payload["families"]:
+        llm_ok = 0
+        for item in family["items"]:
+            verdict = by_product.get(item["product_id"])
+            if verdict is None:
+                item["llm_decision"] = None
+                item["llm_category"] = None
+                continue
+            item["llm_decision"] = verdict["decision"]
+            item["llm_category"] = verdict["category"]
+            classified += 1
+            if verdict["decision"] == "accept":
+                accepted += 1
+                llm_ok += 1
+            else:
+                rejected += 1
+        family["llm_ok_count"] = llm_ok
+        family["llm_total_count"] = sum(
+            1 for it in family["items"] if it.get("llm_decision") is not None
+        )
+    return {
+        "classified_products": len(by_product),
+        "classified_items": classified,
+        "accepted": accepted,
+        "rejected": rejected,
+    }
