@@ -5,6 +5,19 @@
 > e o mesmo playbook que já validamos no Açougue. Prioridade de partida
 > (definida pelo usuário): **1) Mercearia · 2) Bebidas · 3) Frios e Laticínios**.
 
+## Status atual (2026-09-03)
+
+- ✅ **Fase 0** — fundação multi-departamento entregue (commit `188a07f`,
+  migração `0013`): coluna `department` em classificações/categorias, prompts/
+  coletores/painéis genéricos, seletor de departamento, tela revisão por dept.
+- ✅ **Fase 1 — Mercearia**: rodada completa persistida — **14.790 aceitos ·
+  4.173 NAO_MERCEARIA** (de 18.963 candidatos), **154 categorias canônicas**
+  semeadas. **Aguardando validação do usuário** antes de seguir:
+  - Revisão: `/catalog/department-review?department=Mercearia`
+  - Categorias (merge/rename): `/catalog/categories?department=Mercearia`
+  - JSON bruto: `outputs/llm_mercearia.json`
+- ⏭️ Próximas (após validar Mercearia): **Bebidas** → **Frios e Laticínios**.
+
 ## Tamanho da base (distribuição aproximada por departamento — taxonomia atual)
 
 | Departamento | Produtos | | Departamento | Produtos |
