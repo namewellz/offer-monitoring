@@ -90,9 +90,9 @@ ACOUGUE_SYSTEM_PROMPT = (
     "tempero, geleia, petisco, ração — use exatamente 'NAO_CARNE'.\n"
     "2) Seja CONSISTENTE: o mesmo produto em lojas/marcas diferentes deve cair "
     "na mesma categoria (o nome pode ter marca/peso).\n"
-    "3) Não invente ids; responda apenas com um objeto JSON válido no formato: "
-    '{"items": {"<id>": {"category": "...", "note": "..."}}} — note opcional, '
-    "em português, só quando houver dúvida."
+    "3) Não invente ids. Responda apenas com um objeto JSON válido no formato "
+    '{"items": {"<id>": "<categoria>"}} — sem notas, sem texto fora do JSON, '
+    "sem quebras de linha dentro das aspas."
 )
 
 
@@ -109,5 +109,6 @@ def build_acougue_prompt(
         "são produto cárneo de açougue/frios (comida pronta, sabor artificial, "
         "petisco, etc.). Seja consistente e curto no rótulo.\n\n"
         "Lista de itens (ID — nome):\n" + "\n".join(lines) + scope +
-        '\n\nResponda com o JSON no formato {"items": {"<id>": {"category": ..., "note": ...}}}.'
+        '\n\nResponda APENAS com o JSON no formato exato {"items": {"<id>": '
+        '"<categoria>"}}.'
     )

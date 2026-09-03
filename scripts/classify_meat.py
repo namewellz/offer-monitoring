@@ -104,9 +104,14 @@ def main() -> None:
         items = [(c["product_id"], c["raw_name"]) for c in batch]
         user_prompt = build_user_prompt(line, items)
         content = client.chat_json(SYSTEM_PROMPT, user_prompt)
-        decisions, reasons = parse_ids_json(content, {pid for pid, _ in items})
+        decisions, reasons = {}, {}
+        try:
+            decisions, reasons = parse_ids_json(content, {pid for pid, _ in items})
+        except Exception as exc:  # noqa: BLE001 - single failed batch must not stop the run
+            print(f"  lote {index}/{len(batches)}: JSON inválido ignorando fallback rejeitar -> {str(exc)[:80]}")
         total_tokens += _est_tokens(user_prompt) + _est_tokens(content)
 
+        batch_rows: list[dict[str, Any]] = []
         for cand in batch:
             pid = cand["product_id"]
             decision = decisions.get(pid, "reject")
@@ -123,21 +128,24 @@ def main() -> None:
                 if not reason:
                     reason = "não parece Bacon/linha de verdade (sabor/ingrediente?)"
                 rejected.append({**record, "reason": reason})
-            rows.append(
-                {
-                    "source_product_id": pid,
-                    "line_key": args.line,
-                    "retailer_slug": cand["retailer"],
-                    "decision": decision,
-                    "reason": reason,
-                    "model": client.model,
-                    "batch_id": batch_id,
-                    "prompt_version": "1",
-                }
-            )
+            row = {
+                "source_product_id": pid,
+                "line_key": args.line,
+                "retailer_slug": cand["retailer"],
+                "decision": decision,
+                "reason": reason,
+                "model": client.model,
+                "batch_id": batch_id,
+                "prompt_version": "1",
+            }
+            batch_rows.append(row)
+            rows.append(row)
+        if args.persist:
+            with SessionLocal() as db:
+                upsert_decisions(db, batch_rows)
         print(
             f"  lote {index}/{len(batches)}: {len(batch)} itens -> "
-            f"{sum(1 for r in rows[-len(batch):] if r['decision']=='accept')} aceitos"
+            f"{sum(1 for r in batch_rows if r['decision']=='accept')} aceitos"
         )
 
     elapsed = round(time.perf_counter() - start, 1)
@@ -145,9 +153,7 @@ def main() -> None:
           f"| ~{total_tokens} tok | {elapsed}s")
 
     if args.persist:
-        with SessionLocal() as db:
-            counts = upsert_decisions(db, rows)
-        print(f"Banco: {counts['created']} criados, {counts['updated']} atualizados.")
+        print(f"Banco: {len(rows)} decisões gravadas (incremental por lote).")
 
     payload = {
         "generated_at": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
@@ -155,6 +161,7 @@ def main() -> None:
         "label": line["label"],
         "model": client.model,
         "total_candidates": len(candidates),
+        "processed": len(rows),
         "accepted_count": len(accepted),
         "rejected_count": len(rejected),
         "accepted": accepted,

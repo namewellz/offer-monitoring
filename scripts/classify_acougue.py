@@ -28,7 +28,7 @@ from collections import Counter
 from typing import Any
 
 from app.classification.candidates import collect_meat_candidates
-from app.classification.deepseek import DeepSeekClient, parse_categories
+from app.classification.deepseek import DeepSeekClient, DeepSeekError, parse_categories
 from app.classification.prompts import (
     ACOUGUE_SYSTEM_PROMPT,
     build_acougue_prompt,
@@ -107,13 +107,35 @@ def main() -> None:
     batch_id = time.strftime("b-%Y%m%d-%H%M%S")
     total_tokens = 0
     start = time.perf_counter()
+    failed_batches: list[int] = []
 
     for index, batch in enumerate(batches, start=1):
         items = [(c["product_id"], c["raw_name"]) for c in batch]
         user = build_acougue_prompt(items, args.retailer)
-        content = client.chat_json(ACOUGUE_SYSTEM_PROMPT, user)
-        cats = parse_categories(content)
-        total_tokens += _est_tokens(user) + _est_tokens(content)
+        cats: dict[int, tuple[str, str]] | None = None
+        last_error = ""
+        for attempt in range(1, 4):
+            content = client.chat_json(ACOUGUE_SYSTEM_PROMPT, user)
+            total_tokens += _est_tokens(user) + _est_tokens(content)
+            try:
+                cats = parse_categories(content)
+                break
+            except DeepSeekError as exc:
+                last_error = str(exc)
+                if attempt < 3:
+                    user = (
+                        user
+                        + "\n\nA resposta anterior não pôde ser lida como JSON "
+                        "válido. Responda novamente APENAS com o JSON no formato "
+                        'exato {"items": {"<id>": "<categoria>"}}, sem notas nem '
+                        "texto extra."
+                    )
+        if cats is None:
+            failed_batches.append(index)
+            print(f"  lote {index}/{len(batches)}: FALHOU (JSON inválido: {last_error[:90]})")
+            continue
+
+        batch_rows: list[dict[str, Any]] = []
         for cand in batch:
             pid = cand["product_id"]
             category, note = cats.get(pid, ("NAO_CARNE", ""))
@@ -127,20 +149,25 @@ def main() -> None:
                 "note": note,
             }
             (accepted if is_meat else rejected).append(record)
-            rows.append(
-                {
-                    "source_product_id": pid,
-                    "line_key": category if is_meat else "reject",
-                    "retailer_slug": cand["retailer"],
-                    "decision": "accept" if is_meat else "reject",
-                    "reason": note,
-                    "model": client.model,
-                    "batch_id": batch_id,
-                    "prompt_version": "acougue-1",
-                }
-            )
-        batch_ok = sum(1 for r in rows[-len(batch):] if r["decision"] == "accept")
-        print(f"  lote {index}/{len(batches)}: {len(batch)} itens -> {batch_ok} aceitos")
+            row = {
+                "source_product_id": pid,
+                "line_key": category if is_meat else "reject",
+                "retailer_slug": cand["retailer"],
+                "decision": "accept" if is_meat else "reject",
+                "reason": note,
+                "model": client.model,
+                "batch_id": batch_id,
+                "prompt_version": "acougue-1",
+            }
+            batch_rows.append(row)
+            rows.append(row)
+        if args.persist:
+            with SessionLocal() as db:
+                upsert_decisions(db, batch_rows)
+        batch_ok = sum(1 for r in batch_rows if r["decision"] == "accept")
+        print(
+            f"  lote {index}/{len(batches)}: {len(batch)} itens -> {batch_ok} aceitos"
+        )
 
     elapsed = round(time.perf_counter() - start, 1)
     cat_counts = Counter(r["category"] for r in accepted)
@@ -148,18 +175,20 @@ def main() -> None:
         f"\nResultado: {len(accepted)} no açougue | {len(rejected)} NAO_CARNE "
         f"| ~{total_tokens} tok | {elapsed}s"
     )
+    if failed_batches:
+        print(f"AVISO: {len(failed_batches)} lote(s) falharam: {failed_batches}")
     print("Top categorias:", cat_counts.most_common(15))
 
     if args.persist:
-        with SessionLocal() as db:
-            counts = upsert_decisions(db, rows)
-        print(f"Banco: {counts['created']} criados, {counts['updated']} atualizados.")
+        print(f"Banco: {len(rows)} decisões gravadas (incremental por lote).")
 
     payload = {
         "generated_at": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
         "mode": "acougue",
         "model": client.model,
         "total_candidates": len(candidates),
+        "processed": len(rows),
+        "failed_batches": failed_batches,
         "accepted_count": len(accepted),
         "rejected_count": len(rejected),
         "top_categories": cat_counts.most_common(50),
