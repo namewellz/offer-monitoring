@@ -38,6 +38,7 @@ from app.catalog.v2.read import (
 from app.classification.canonical import (
     CANONICAL_CATEGORIES,
     category_counts,
+    distinct_canonicals,
     seed_categories,
     set_canonicals,
 )
@@ -804,13 +805,19 @@ def butcher_review_json(db: Session = Depends(get_db)):
 def categories_page(db: Session = Depends(get_db)):
     """Painel de edição das categorias canônicas do Açougue."""
     seed_categories(db)
-    return render_categories_page(category_counts(db), CANONICAL_CATEGORIES)
+    return render_categories_page(
+        category_counts(db), CANONICAL_CATEGORIES, distinct_canonicals(db)
+    )
 
 
 @app.get("/catalog/categories.json")
 def categories_json(db: Session = Depends(get_db)):
     seed_categories(db)
-    return {"base": list(CANONICAL_CATEGORIES), "labels": category_counts(db)}
+    return {
+        "base": list(CANONICAL_CATEGORIES),
+        "canonicals": distinct_canonicals(db),
+        "labels": category_counts(db),
+    }
 
 
 @app.post("/catalog/categories")

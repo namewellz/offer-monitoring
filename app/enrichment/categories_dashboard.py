@@ -15,7 +15,9 @@ from typing import Any
 def render_categories_page(
     labels: list[dict[str, Any]],
     base: tuple[str, ...],
+    canonicals: list[str] | None = None,
 ) -> str:
+    options = sorted({name for name in (*base, *(canonicals or [])) if name})
     rows: list[str] = []
     for row in labels:
         label = row["label"]
@@ -33,7 +35,7 @@ def render_categories_page(
         "<th>Nome canônico (edite/merge)</th></tr></thead>"
         f"<tbody>{''.join(rows)}</tbody></table></div>"
     )
-    datalist = "".join(f'<option value="{escape(name)}"></option>' for name in base)
+    datalist = "".join(f'<option value="{escape(name)}"></option>' for name in options)
     return f"""<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -68,7 +70,10 @@ nome canônico em várias linhas para agrupá-las (ex.: juntar 'Acém Bovino' em
 <div id="msg" class="msg"></div>
 <div class="cat-tools">
 <div class="review-search"><input id="q" type="search" placeholder="Filtrar categoria…"></div>
-<span style="margin-left:auto;color:var(--muted);font-size:12px">sugestões canônicas disponíveis no datalist</span>
+<span style="display:flex;gap:6px;align-items:center">
+<input id="newcat" list="canonical-list" placeholder="Nova categoria canônica…" style="padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px">
+<button class="page-button" id="addcat" type="button" style="background:var(--mint)">+ Adicionar</button>
+</span>
 <button class="page-button" id="save" type="button" style="background:var(--green);color:#fff">Salvar</button>
 </div>
 <div id="list">{table or '<div class="review-empty">Nenhuma categoria ainda.</div>'}</div>
@@ -86,6 +91,14 @@ nome canônico em várias linhas para agrupá-las (ex.: juntar 'Acém Bovino' em
       label: inp.dataset.label,
       canonical: inp.value.trim() || inp.dataset.label
     }}));
+    await doSave(updates);
+  }});
+  document.getElementById('addcat').addEventListener('click',async function(){{
+    const name=document.getElementById('newcat').value.trim();
+    if(!name) return;
+    await doSave([{{label:name, canonical:name}}]);
+  }});
+  async function doSave(updates){{
     const btn=document.getElementById('save'); btn.disabled=true;
     try{{
       const res=await fetch('/catalog/categories',{{
@@ -97,12 +110,12 @@ nome canônico em várias linhas para agrupá-las (ex.: juntar 'Acém Bovino' em
       msg.className='msg'+(res.ok?'':' err');
       msg.style.display='block';
       msg.textContent=res.ok?('Salvo: '+data.created+' novas, '+data.updated+' alteradas. Recarregando…'):('Erro: '+JSON.stringify(data));
-      if(res.ok) setTimeout(()=>location.reload(),700);
+      if(res.ok) setTimeout(()=>location.reload(),600);
     }}catch(e){{
       const msg=document.getElementById('msg'); msg.className='msg err'; msg.style.display='block';
       msg.textContent='Falha ao salvar: '+e;
     }}finally{{ btn.disabled=false; }}
-  }});
+  }}
 }})();
 </script>
 </body></html>"""

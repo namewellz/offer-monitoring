@@ -104,17 +104,19 @@ ACOUGUE_SYSTEM_PROMPT = (
 def build_acougue_prompt(
     items: list[tuple[int, str]],
     retailer_label: str | None = None,
+    canonical: list[str] | None = None,
 ) -> str:
     lines = [f"{pid} — {name}" for pid, name in items]
     scope = f"\nContexto: itens do supermercado {retailer_label}." if retailer_label else ""
-    canonical = "\n".join(f"- {c}" for c in CANONICAL_CATEGORIES)
+    categories = canonical or list(CANONICAL_CATEGORIES)
+    canonical_text = "\n".join(f"- {c}" for c in categories)
     return (
         "Classifique cada item abaixo em UMA das CATEGORIAS CANÔNICAS listadas "
         "(departamento de açougue/frios). Use 'NAO_CARNE' para itens que não são "
         "produto cárneo de açougue/frios (comida pronta, sabor artificial, "
         "petisco, etc.). Seja consistente: mesmo produto = mesma categoria; "
         "não crie variações do nome.\n\n"
-        "CATEGORIAS CANÔNICAS:\n" + canonical + "\n\n"
+        "CATEGORIAS CANÔNICAS:\n" + canonical_text + "\n\n"
         "Lista de itens (ID — nome):\n" + "\n".join(lines) + scope +
         '\n\nResponda APENAS com o JSON no formato exato {"items": {"<id>": '
         '"<categoria>"}}.'

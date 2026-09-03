@@ -38,6 +38,21 @@ CANONICAL_CATEGORIES: tuple[str, ...] = (
     "Salsicha", "Sassami", "Sobrecoxa de Frango", "Asa de Frango",
     "Coxa de Frango", "Coxinha da Asa", "Bacalhau", "Camarão",
     "Filé de Peixe Branco", "Peixe Inteiro", "Salmão", "Tilápia",
+    # extras em uso (majors) para sugestões/fallback
+    "Hambúrguer", "Hambúrguer Bovino", "Hambúrguer de Frango", "Hambúrguer Misto",
+    "Coxa/Sobrecoxa de Frango", "Peixe (filé inteiro)", "Sardinha", "Mortadela",
+    "Mortadela Defumada", "Mortadela de Frango", "Lombo Canadense", "Lombo Cozido",
+    "Peito de Frango Defumado", "Moela de Frango", "Pé Suíno", "Pé de Frango",
+    "Filezinho Sassami", "Filezinho de Frango", "Paleta Bovina", "Picanha Suína",
+    "Steak de Frango", "Panceta Suína", "Isca de Frango", "Fígado de Frango",
+    "Barriga Suína", "Paio", "Bucho", "Almôndega Bovina", "Almôndega Mista",
+    "Músculo Bovino", "Patê de Peito de Peru", "Embutido de Lombo", "Espetinho Bovino",
+    "Salame", "Salame Italiano", "Fiambre", "Orelha Suína", "Mocotó", "Rabada Bovina",
+    "Língua Bovina", "Kibe", "Jerked Beef", "Fígado Bovino", "Bisteca Bovina",
+    "Ponta de Peito Bovina", "Alcatra Suína", "Maminha Bovina", "Costelinha Suína",
+    "Rabo Suíno", "Toucinho", "Suã Suíno", "Chuleta", "Osso Buco",
+    "Pernil de Cordeiro", "Frango Desfiado", "Frango Temperado", "Iscas de Peixe",
+    "Peixe Salgado", "Bife Bovino", "Bife Ancho", "Miolo de Alcatra",
 )
 
 
@@ -72,6 +87,24 @@ def canonical_map(db: Session) -> dict[str, str]:
     """label -> canonical (defaults to label when absent)."""
     rows = db.execute(select(LlmCategoryLabel.label, LlmCategoryLabel.canonical)).all()
     return {label: canonical for label, canonical in rows}
+
+
+def distinct_canonicals(db: Session) -> list[str]:
+    """Canonical names currently in use (after merges/renames in the panel)."""
+    rows = db.execute(
+        select(LlmCategoryLabel.canonical).distinct().order_by(LlmCategoryLabel.canonical)
+    ).scalars().all()
+    return [name for name in rows if name]
+
+
+def prompt_canonical_names(db: Session) -> list[str]:
+    """Vocabulary sent to the LLM = the canonical names from the panel.
+
+    Editing/merging categories in the panel changes the next classification run
+    with no code changes. Falls back to the curated constant when empty.
+    """
+    names = distinct_canonicals(db)
+    return names or list(CANONICAL_CATEGORIES)
 
 
 def category_counts(db: Session) -> list[dict[str, Any]]:

@@ -29,6 +29,7 @@ from collections import Counter
 from typing import Any
 
 from app.classification.candidates import collect_meat_candidates
+from app.classification.canonical import prompt_canonical_names
 from app.classification.deepseek import DeepSeekClient, DeepSeekError, parse_categories
 from app.classification.prompts import (
     ACOUGUE_SYSTEM_PROMPT,
@@ -102,6 +103,10 @@ def main() -> None:
         print(f"Candidatos gravados em {out_path}.")
         return
 
+    with SessionLocal() as db:
+        canonical_names = prompt_canonical_names(db)
+    print(f"Vocabulário canônico no prompt: {len(canonical_names)} categorias.")
+
     accepted: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
     rows: list[dict[str, Any]] = []
@@ -112,7 +117,7 @@ def main() -> None:
 
     for index, batch in enumerate(batches, start=1):
         items = [(c["product_id"], c["raw_name"]) for c in batch]
-        user = build_acougue_prompt(items, args.retailer)
+        user = build_acougue_prompt(items, args.retailer, canonical=canonical_names)
         cats: dict[int, tuple[str, str]] | None = None
         last_error = ""
         for attempt in range(1, 4):
