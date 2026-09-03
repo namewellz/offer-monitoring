@@ -71,14 +71,62 @@ def _collect(db: Session) -> list[MeatItem]:
     return items
 
 
-def build_markdown(items: list[MeatItem]) -> str:
+def _ordered_groups(items: list[MeatItem]) -> list[tuple[tuple[Any, ...], list[MeatItem]]]:
     groups: dict[tuple[Any, ...], list[MeatItem]] = defaultdict(list)
     for item in items:
         key = item.parsed.variant_key
         if key is not None:
             groups[key].append(item)
+    return sorted(groups.items(), key=lambda kv: -len(kv[1]))
 
-    ordered = sorted(groups.items(), key=lambda kv: -len(kv[1]))
+
+def build_json(items: list[MeatItem]) -> dict[str, Any]:
+    families: list[dict[str, Any]] = []
+    for index, (_key, members) in enumerate(_ordered_groups(items), start=1):
+        first = members[0].parsed
+        prices = [m.price_kg for m in members if m.price_kg is not None]
+        sources = sorted({m.retailer for m in members})
+        families.append(
+            {
+                "id": index,
+                "label": first.label,
+                "species": first.species,
+                "cut": first.cut,
+                "bone_state": first.bone_state,
+                "skin_state": first.skin_state,
+                "presentation": first.presentation,
+                "conservation": first.conservation,
+                "seasoned": first.seasoned,
+                "sale_mode": first.sale_mode,
+                "item_count": len(members),
+                "sources": sources,
+                "price_kg_min": float(min(prices)) if prices else None,
+                "price_kg_max": float(max(prices)) if prices else None,
+                "observations": "",
+                "items": [
+                    {
+                        "source": m.retailer,
+                        "store": m.store,
+                        "price_kg": float(m.price_kg) if m.price_kg is not None else None,
+                        "raw_name": m.raw_name,
+                        "product_id": m.product_id,
+                        "observations": "",
+                    }
+                    for m in members
+                ],
+            }
+        )
+    return {
+        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "total_items": len(items),
+        "total_families": len(families),
+        "families_with_associations": sum(1 for f in families if f["item_count"] >= 2),
+        "families": families,
+    }
+
+
+def build_markdown(items: list[MeatItem]) -> str:
+    ordered = _ordered_groups(items)
 
     out: list[str] = []
     out.append("# Revisão de classificação — Açougue (motor determinístico)")
@@ -141,16 +189,29 @@ def build_markdown(items: list[MeatItem]) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", help="output file path (default: stdout)")
+    parser.add_argument(
+        "--format",
+        choices=["md", "json"],
+        help="output format (default: inferred from --out extension, else md)",
+    )
     args = parser.parse_args()
     with SessionLocal() as db:
-        markdown = build_markdown(_collect(db))
+        items = _collect(db)
+    fmt = args.format or ("json" if args.out and args.out.lower().endswith(".json") else "md")
+    if fmt == "json":
+        import json
+
+        payload = build_json(items)
+        content = json.dumps(payload, ensure_ascii=False, indent=2)
+    else:
+        content = build_markdown(items)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as stream:
-            stream.write(markdown)
-        print(f"written: {args.out}", file=sys.stderr)
+            stream.write(content)
+        print(f"written: {args.out} ({fmt})", file=sys.stderr)
     else:
         sys.stdout.reconfigure(encoding="utf-8")
-        print(markdown)
+        print(content)
 
 
 if __name__ == "__main__":
