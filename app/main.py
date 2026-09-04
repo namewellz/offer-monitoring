@@ -825,9 +825,18 @@ def butcher_json(limit: int = 300, all: int = 0, db: Session = Depends(get_db)):
 
 
 @app.get("/catalog/butcher-review", response_class=HTMLResponse, include_in_schema=False)
-def butcher_review_page(db: Session = Depends(get_db)):
-    """Açougue classification review screen (server-rendered, live from v2)."""
-    return render_butcher_review(butcher_review(db))
+def butcher_review_page(
+    db: Session = Depends(get_db), department: str = "Açougue"
+):
+    """Revisão de classificação por departamento.
+
+    Açougue usa a revisão determinística (parser de cortes + overlay LLM); os
+    demais departamentos usam a revisão genérica da classificação LLM
+    (categorias canônicas + amostras + rejeitados). Troque com o seletor.
+    """
+    if department == "Açougue":
+        return render_butcher_review(butcher_review(db))
+    return render_department_review_page(department_review(db, department))
 
 
 @app.get("/catalog/butcher-review.json")

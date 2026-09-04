@@ -12,6 +12,7 @@ from html import escape
 from typing import Any
 
 from app.enrichment.dashboard import RETAILER_LABELS
+from app.enrichment.department_review_dashboard import dept_selector
 
 _PAGE_CSS = """
 .review-tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--surface);
@@ -20,6 +21,9 @@ _PAGE_CSS = """
  border-radius:11px;padding:2px 4px 2px 12px;background:#fff}
 .review-search input{border:0;outline:0;width:100%;padding:10px 6px;font-size:14px;color:var(--ink);background:transparent}
 .review-search .kbd{flex:none;color:#9aa39f;font-size:11px;border:1px solid var(--line);border-radius:6px;padding:3px 6px}
+.deptsel{display:flex;gap:8px;align-items:center}
+.deptsel label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}
+.deptsel select{padding:8px 10px;border:1px solid var(--line);border-radius:10px;font-size:13px;background:#fff;color:var(--ink)}
 .review-toggle{display:inline-flex;gap:7px;align-items:center;padding:9px 12px;border:1px solid var(--line);
  border-radius:10px;background:#fff;color:var(--ink);font-size:13px;font-weight:600;cursor:pointer}
 .review-toggle:hover{border-color:#c8d4ce}
@@ -253,6 +257,7 @@ são ignoradas na revisão.</p>
 </div>
 {llm_strip}
 <div class="review-tools">
+{dept_selector('Açougue')}
 <div class="review-search">
 <input id="q" type="search" placeholder="Filtrar por corte, tipo ou nome do produto…" autocomplete="off">
 <span class="kbd">/</span>

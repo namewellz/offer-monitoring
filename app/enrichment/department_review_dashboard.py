@@ -10,6 +10,23 @@ def _br(n: int) -> str:
     return f"{n:,}".replace(",", ".")
 
 
+def dept_selector(department: str) -> str:
+    """Dropdown de departamento que navega na tela de revisão (/catalog/butcher-review)."""
+    from app.catalog.taxonomy import CANONICAL_DEPARTMENTS
+
+    options = "".join(
+        f'<option value="{escape(d)}"{" selected" if d == department else ""}>'
+        f"{escape(d)}</option>"
+        for d in CANONICAL_DEPARTMENTS
+    )
+    return (
+        "<span class='deptsel'><label>Departamento</label>"
+        "<select onchange=\"location.href='/catalog/butcher-review?department='"
+        "+encodeURIComponent(this.value)\" title='Trocar departamento'>"
+        f"{options}</select></span>"
+    )
+
+
 def render_department_review_page(data: dict[str, Any]) -> str:
     department = data["department"]
     groups = data["groups"]
@@ -25,9 +42,10 @@ def render_department_review_page(data: dict[str, Any]) -> str:
     )
     chips = (
         "<div class='tools'>"
-        f"<span class='chip-stat'><b>{_br(data['accepted_products'])}</b> aceitos</span>"
-        f"<span class='chip-stat'><b>{_br(data['rejected_products'])}</b> fora do dept</span>"
-        f"<span class='chip-stat'><b>{_br(data['distinct_canonicals'])}</b> categorias</span>"
+        + dept_selector(department)
+        + f"<span class='chip-stat'><b>{_br(data['accepted_products'])}</b> aceitos</span>"
+        + f"<span class='chip-stat'><b>{_br(data['rejected_products'])}</b> fora do dept</span>"
+        + f"<span class='chip-stat'><b>{_br(data['distinct_canonicals'])}</b> categorias</span>"
         "</div>"
     )
     rows: list[str] = []
@@ -72,7 +90,10 @@ def render_department_review_page(data: dict[str, Any]) -> str:
 <meta name="theme-color" content="#145c42"><title>{escape(department)} — revisão</title>
 <link rel="stylesheet" href="/static/catalog.css?v=20260829-4">
 <style>
-.tools{{display:flex;gap:10px;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:14px}}
+.tools{{display:flex;gap:10px;flex-wrap:wrap;align-items:center;background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:14px}}
+.deptsel{{display:flex;gap:8px;align-items:center;margin-right:6px}}
+.deptsel label{{font-size:12px;color:var(--muted);font-weight:700;white-space:nowrap}}
+.deptsel select{{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;background:#fff;color:var(--ink)}}
 .chip-stat{{font-size:13px;color:var(--muted)}}.chip-stat b{{font-size:17px;color:var(--green);display:block}}
 .dtable{{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden}}
 .dtable th{{text-align:left;font-size:11px;text-transform:uppercase;color:var(--muted);padding:10px 12px;background:#fafcfb;border-bottom:1px solid var(--line)}}
