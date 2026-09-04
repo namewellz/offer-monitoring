@@ -12,6 +12,9 @@ x-app-environment: &app-environment
   ASSAI_PASSWORD: ${ASSAI_PASSWORD:-}
   ASSAI_BUNDLE_FILE: /run/secrets/meu_assai_bundle.js
   TENDA_PROXY_URL: ${TENDA_PROXY_URL:-}
+  DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+  DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+  DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
 services:
