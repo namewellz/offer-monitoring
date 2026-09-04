@@ -67,6 +67,8 @@ from app.enrichment.categories_dashboard import render_categories_page
 from app.enrichment.dashboard import render_butcher_dashboard
 from app.enrichment.department_review import department_review
 from app.enrichment.department_review_dashboard import render_department_review_page
+from app.enrichment.dept_prices import dept_price_rows
+from app.enrichment.dept_prices_dashboard import render_dept_prices_page
 from app.enrichment.review import butcher_review
 from app.enrichment.review_dashboard import render_butcher_review
 from app.extraction.ollama_client import OllamaVisionClient
@@ -99,6 +101,12 @@ def _butcher_warm_loop() -> None:
             from app.enrichment.butcher import warm_butcher_cache
 
             warm_butcher_cache()
+        except Exception:
+            pass
+        try:
+            from app.enrichment.dept_prices import warm_department_prices
+
+            warm_department_prices("Mercearia")
         except Exception:
             pass
 
@@ -843,6 +851,21 @@ def butcher_review_page(
 def butcher_review_json(db: Session = Depends(get_db)):
     """JSON payload behind the review screen (same shape as the exported file)."""
     return butcher_review(db)
+
+
+@app.get("/catalog/dept-prices", response_class=HTMLResponse, include_in_schema=False)
+def dept_prices_page(
+    db: Session = Depends(get_db), department: str = "Mercearia"
+):
+    """Comparativo de preços por unidade de um departamento (LLM-accepted)."""
+    return render_dept_prices_page(dept_price_rows(db, department))
+
+
+@app.get("/catalog/dept-prices.json")
+def dept_prices_json(
+    db: Session = Depends(get_db), department: str = "Mercearia"
+):
+    return dept_price_rows(db, department)
 
 
 @app.get("/catalog/department-review", response_class=HTMLResponse, include_in_schema=False)

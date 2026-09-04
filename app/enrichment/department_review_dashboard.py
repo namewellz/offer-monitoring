@@ -113,8 +113,8 @@ ul.samples .r{{display:inline-block;font-size:10.5px;font-weight:700;color:var(-
 <span class="live"><i></i> {escape(department)}</span></div></header>
 <main class="shell">
 <nav class="view-tabs" aria-label="Visões">
-<a href="/catalog/cuts">Comparativo R$/kg</a>
-<a class="active" href="/catalog/department-review?department={escape(department)}">Revisão por dept</a>
+<a href="/catalog/dept-prices?department={escape(department)}">Comparativo de preços</a>
+<a class="active" href="/catalog/butcher-review?department={escape(department)}">Revisão</a>
 <a href="/catalog/categories?department={escape(department)}">Categorias</a>
 <a href="/shopping-lists">Lista</a>
 </nav>
