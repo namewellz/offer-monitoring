@@ -65,3 +65,14 @@ def test_morango_is_package_not_kg():
     row = lines[0]
     assert row["sources"]["atacadao"]["price"] == 7.99
     assert row["sources"]["tenda"]["price"] == 8.9
+
+
+def test_uva_is_package_not_kg():
+    canonical = {1: "Uva", 2: "Uva"}
+    entries = [
+        _e(1, 6.49, "Uva Itália Pacote 500g", "assai"),
+        _e(2, 6.99, "UVA SEM SEMENTE 500G", "atacadao"),
+    ]
+    lines = _group_produce(entries, canonical)
+    assert [(ln["category"], ln["form"]) for ln in lines] == [("Uva", "pacote")]
+    assert lines[0]["sources"]["assai"]["price"] == 6.49

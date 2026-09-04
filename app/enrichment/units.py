@@ -149,11 +149,13 @@ def parse_quantity(name: str) -> ParsedUnit | None:
 
 # Categorias vendidas POR PACOTE/EMBALAGEM (não por peso/volume, e não por
 # peça): o preço comparável é o do pacote inteiro, sem dividir por nada
-# (ex.: Pão de Alho 300g é 1 pacote; Morango é vendido em bandeja/pacote).
+# (ex.: Pão de Alho 300g é 1 pacote; Morango e Uva são vendidos em
+# bandeja/pacote).
 PACKAGE_CATEGORIES: frozenset[str] = frozenset({
     "Pão de Alho",
     "Pão de Queijo",
     "Morango",
+    "Uva",
 })
 
 

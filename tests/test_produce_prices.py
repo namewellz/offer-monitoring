@@ -110,3 +110,17 @@ def test_morango_is_package_not_per_kg():
     # Maçã Fuji keeps being compared per kg
     assert by_name["Maçã Fuji"]["is_package"] is False
     assert by_name["Maçã Fuji"]["has_kg"] is True
+
+
+def test_uva_is_package_not_per_kg():
+    entries = [
+        _entry(1, "Uva Itália 500g", 6.49, "assai"),
+        _entry(2, "Uva sem semente Pacote 500g", 7.99, "tenda", retailer_name="Tenda"),
+    ]
+    identities, _ = _aggregate(entries)
+    by_name = {it["product"]: it for it in identities}
+    uva = by_name["Uva"]
+    assert uva["is_package"] is True
+    assert uva["has_kg"] is False
+    assert uva["best"]["slug"] == "assai"
+    assert uva["best"]["per_pkg"] == 6.49
