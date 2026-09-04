@@ -28,7 +28,7 @@ for _t in (
 ):
     _UNIT_TOKENS[_t] = "units"
 
-# numbers+unit in any position; unit boundaries so "500g" != "0g" inside a word
+# number+unit matches in any position; unit boundaries so "500g" != "0g" inside a word
 _RE_QTY_UNIT = re.compile(
     r"(?<!\d)(\d{1,4}(?:[.,]\d{1,3})?)\s*(x\s*)?\s*"
     r"(kg|kgs|quilos?|kilos?|g|gr|grs|gramas?|mg|l|lt|litros?|ml|"
@@ -43,6 +43,28 @@ _RE_MULT = re.compile(
 )
 
 _STRIP_UNIT_WORDS = re.compile(r"\b(kg|g|gr|grs|ml|l|lt|un|und|unid|pc)\b\.?", re.IGNORECASE)
+
+# Unidade "implícita" (sem número) — produtos de peso vendidos por kg/L ou por
+# unidade cujo nome não traz quantidade (ex.: "Maçã Fuji Kg", "BANANA MAÇÃ KG",
+# "Maçã Fuji Unidade"). Tratamos 1 unidade daquela base (preço por kg/L/un).
+_IMPLICIT_SETS: tuple[tuple[frozenset[str], str, str], ...] = (
+    (frozenset({"kg", "kgs", "quilo", "quilos", "kilo", "kilos"}), "mass", "kg"),
+    (frozenset({"l", "lt", "litro", "litros"}), "vol", "L"),
+    (frozenset({"un", "und", "unid", "uni", "unidade", "unidades"}), "units", "un"),
+)
+
+
+def _implicit_unit(name: str) -> ParsedUnit | None:
+    words = {
+        re.sub(r"[^a-z]+", "", word.lower())
+        for word in re.findall(r"[A-Za-zÀ-ú]+", name or "")
+        if word
+    }
+    for tokens, family, display in _IMPLICIT_SETS:
+        for word in words:
+            if word in tokens:
+                return ParsedUnit(1.0, family, display, word)
+    return None
 
 
 @dataclass(frozen=True)
@@ -88,7 +110,7 @@ def parse_quantity(name: str) -> ParsedUnit | None:
 
     matches = list(_RE_QTY_UNIT.finditer(name))
     if not matches:
-        return None
+        return _implicit_unit(name)
 
     # prefer a mass/volume match; if none, the units match
     def _family(match: re.Match) -> str:

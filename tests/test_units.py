@@ -55,9 +55,20 @@ def test_prefers_mass_over_units():
 
 
 def test_no_unit_returns_none():
-    assert parse_quantity("Banana") is None
-    assert parse_quantity("Tomate kg") is None  # no numeric qty
+    assert parse_quantity("Banana") is None          # não traz unidade
+    assert parse_quantity("Pacote sortido") is None  # sem palavra de unidade
     assert parse_quantity("") is None
+
+
+def test_implicit_unit_without_number():
+    # produtos de peso vendidos por kg/L ou por unidade, sem número no nome
+    p = parse_quantity("Maçã Fuji Kg")
+    assert p is not None and p.family == "mass" and abs(p.amount_base - 1.0) < 1e-9
+    assert parse_quantity("BANANA MAÇÃ KG").family == "mass"
+    assert parse_quantity("Tomate kg").family == "mass"  # vendido por kg
+    p2 = parse_quantity("Maçã Fuji Unidade")
+    assert p2 is not None and p2.family == "units" and abs(p2.amount_base - 1.0) < 1e-9
+    assert parse_quantity("Suco de uva integral 1 litro").amount_base == 1.0
 
 
 def test_package_categories_includes_pao_de_alho():
