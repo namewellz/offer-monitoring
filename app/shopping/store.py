@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from sqlalchemy import delete, select
@@ -12,11 +12,15 @@ from app.db.models_v2 import ShoppingList, ShoppingListItem
 
 
 def _qty(value: Any) -> Decimal:
+    """Quantidade inteira >= 1 (a lista usa unidades inteiras, sem decimal)."""
     try:
         qty = Decimal(str(value))
     except (InvalidOperation, ValueError):
         qty = Decimal("1")
-    return qty if qty and qty > 0 else Decimal("1")
+    if qty is None or not qty.is_finite() or qty <= 0:
+        qty = Decimal("1")
+    qty = qty.to_integral_value(rounding=ROUND_HALF_UP)
+    return qty if qty >= 1 else Decimal("1")
 
 
 def create_list(db: Session, name: str) -> ShoppingList:

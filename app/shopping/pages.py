@@ -300,7 +300,7 @@ def _item_row(it: dict[str, Any], row_map: dict[str, Any]) -> str:
         f"{unit_html}"
         f"<span class='detail'>{detail}</span></div></td>"
         f"<td><select class='src'>{select_opts}</select></td>"
-        f"<td><div class='qtywrap'><input class='qty' type='number' min='0.1' step='0.1' "
+        f"<td><div class='qtywrap'><input class='qty' type='number' min='1' step='1' "
         f"value=\"{qty_s}\"><span class='uk'>{escape(unit)}</span></div></td>"
         f"<td class='price'>—</td>"
         f"<td><input class='note' type='text' placeholder='obs.' value=\"{note}\"></td>"
@@ -455,7 +455,7 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
       unitHtml +
       "<span class='detail'>" + detParts.join(' · ') + "</span></div></td>" +
       "<td><select class='src'>" + opts + "</select></td>" +
-      "<td><div class='qtywrap'><input class='qty' type='number' min='0.1' step='0.1' value='" + qty + "'><span class='uk'>" + esc(unit) + "</span></div></td>" +
+      "<td><div class='qtywrap'><input class='qty' type='number' min='1' step='1' value='" + qty + "'><span class='uk'>" + esc(unit) + "</span></div></td>" +
       "<td class='price'>—</td>" +
       "<td><input class='note' type='text' placeholder='obs.' value=''></td>" +
       "<td><button class='del rm' type='button'>×</button></td>";
@@ -485,7 +485,17 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
       } catch (e) { this.disabled = false; }
     });
     tr.querySelector('select.src').addEventListener('change', function(){ persist(id, {retailer: this.value}); compute(); });
-    tr.querySelector('input.qty').addEventListener('input', function(){ persist(id, {qty: this.value}); compute(); });
+    tr.querySelector('input.qty').addEventListener('input', function(){
+      const s = (this.value || '').trim();
+      if (s === '') return;                      // permite apagar para digitar
+      const n = parseFloat(s.replace(',', '.'));
+      if (Number.isNaN(n)) return;
+      let i = Math.round(n);                     // quantidade inteira, sem decimal
+      if (i < 1) i = 1;
+      if (String(i) !== s.replace(',', '.')) this.value = String(i);
+      persist(id, {qty: i});
+      compute();
+    });
     tr.querySelector('input.note').addEventListener('change', function(){ persist(id, {note: this.value}); });
     tr.querySelector('.rm').addEventListener('click', async function(){
       if (!confirm('Remover item?')) return;
