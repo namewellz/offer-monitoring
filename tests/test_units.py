@@ -74,6 +74,9 @@ def test_implicit_unit_without_number():
 def test_package_categories_includes_pao_de_alho():
     assert "Pão de Alho" in PACKAGE_CATEGORIES
     assert "Pão de Queijo" in PACKAGE_CATEGORIES
+    assert "Pão de Forma" in PACKAGE_CATEGORIES
+    assert "Morango" in PACKAGE_CATEGORIES
+    assert "Uva" in PACKAGE_CATEGORIES
 
 
 def test_parse_package_quantity_is_one_package():
