@@ -14,6 +14,7 @@ import json
 from html import escape
 from typing import Any
 
+from app.catalog.taxonomy import CANONICAL_DEPARTMENTS
 from app.enrichment.dashboard import RETAILER_LABELS
 
 _CSS = """
@@ -172,6 +173,13 @@ def render_builder(
     item_rows = [_item_row(it, row_map) for it in list_items]
     payload_rows = json.dumps(row_map, ensure_ascii=False)
     has_items = bool(item_rows)
+    dept_opts = (
+        "<option value='all'>Todos os departamentos</option>"
+        + "".join(
+            f"<option value=\"{escape(d)}\">{escape(d)}</option>"
+            for d in CANONICAL_DEPARTMENTS
+        )
+    )
     table = (
         "<table class='sli-table' id='sltable'>"
         "<thead><tr><th>Item (departamento · produto · unidade)</th>"
@@ -198,8 +206,14 @@ def render_builder(
         "<b id='total'>R$ 0,00</b><span class='muted'>menor preço possível: "
         "<b id='totalmin'>R$ 0,00</b></span></div>"
         + "<div class='addsec'><h2>Adicionar itens</h2>"
-        "<div class='tools'><div class='review-search'><input id='search' type='search' "
-        "placeholder='Buscar produto (ex.: Picanha, Bacon, Moída)…'></div>"
+        "<div class='tools'>"
+        "<select id='deptfilter' title='Filtrar por departamento' "
+        "style='padding:8px 10px;border:1px solid var(--line);border-radius:9px;"
+        "font-size:13px;background:#fff;max-width:220px'>"
+        + dept_opts
+        + "</select>"
+        "<div class='review-search'><input id='search' type='search' "
+        "placeholder='Buscar produto…'></div>"
         "<span class='hint' id='hint'></span></div>"
         "<div class='pick' id='pick' style='display:none'></div></div>"
     )
@@ -273,6 +287,7 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
   for (const k in ROWS) { const [d,c] = k.split('|'); (cats[d + '|' + c] = cats[d + '|' + c] || []).push(k); }
   const catList = Object.keys(cats).sort();
   const search = document.getElementById('search');
+  const deptSel = document.getElementById('deptfilter');
   const pick = document.getElementById('pick');
   const hint = document.getElementById('hint');
   const empty = document.getElementById('empty');
@@ -280,9 +295,12 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
 
   function renderPick() {
     const t = (search.value || '').trim().toLowerCase();
-    if (!t) { pick.style.display = 'none'; pick.innerHTML = ''; hint.textContent = ''; return; }
+    const dept = deptSel.value;
+    if (!t && dept === 'all') { pick.style.display = 'none'; pick.innerHTML = ''; hint.textContent = ''; return; }
     const show = catList.filter(gk => {
       const [d,c] = gk.split('|');
+      if (dept !== 'all' && d !== dept) return false;
+      if (!t) return true;
       if (c.toLowerCase().includes(t)) return true;
       if (d.toLowerCase().includes(t)) return true;
       for (const k of cats[gk]) {
@@ -327,9 +345,10 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
     pick.style.display = show.length ? 'block' : 'none';
     hint.textContent = show.length
       ? (show.length + (show.length > 30 ? '+' : '') + ' produto(s) — clique numa forma para adicionar (qtd 1)')
-      : 'Nada encontrado para "' + t + '"';
+      : (t ? 'Nada encontrado para "' + t + '"' : 'Nenhuma categoria neste departamento.');
   }
   search.addEventListener('input', renderPick);
+  deptSel.addEventListener('change', renderPick);
 
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   function makeRow(it) {
