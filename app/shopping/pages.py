@@ -36,6 +36,8 @@ _CSS = """
 .sli-table td .dept{display:inline-block;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--green);background:#e7f3ee;border-radius:99px;padding:2px 8px}
 .sli-item h4{margin:4px 0 4px;font-size:15px}
 .uni{display:inline-block;font-size:11.5px;color:#51615a;background:#f1f6f3;border-radius:8px;padding:2px 8px;font-weight:600}
+.uni .tipo{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700;margin-bottom:1px}
+select.utype{padding:5px 7px;border:1px solid var(--line);border-radius:8px;font-size:12.5px;background:#fff;font-weight:700;color:#145c42}
 .detail{display:block;font-size:11.5px;color:#5a6b63;margin-top:5px;line-height:1.35;max-width:420px}
 input.qty{width:58px;padding:6px 8px;border:1px solid var(--line);border-radius:8px}
 .qtywrap{display:flex;align-items:center;gap:6px;white-space:nowrap}
@@ -64,10 +66,44 @@ def _brl(value: float | None) -> str:
 
 
 _UNIT_TITLE = {"kg": "kg", "L": "litro", "un": "unidade", "pacote": "pacote"}
+_TIPO_TITLE = {"kg": "Kilo", "L": "Litro", "un": "Unidade", "pacote": "Pacote", "caixa": "Caixa"}
 
 
 def _unit_title(unit: str) -> str:
     return _UNIT_TITLE.get(unit, unit)
+
+
+def _forms_for(row_map: dict[str, Any], department: str, category: str) -> list[str]:
+    """Unidades de venda disponíveis para um produto no catálogo."""
+    prefix = f"{department}|{category}|"
+    forms: list[str] = []
+    for row_key in row_map:
+        if row_key.startswith(prefix):
+            form = row_key[len(prefix):]
+            if form not in forms:
+                forms.append(form)
+    return forms
+
+
+def _unit_html(
+    department: str, category: str, unit: str, label: str, row_map: dict[str, Any]
+) -> str:
+    """Rótulo da unidade. Para Hortifrúti o produto é a identidade e a unidade
+    ('tipo': Kilo/Unidade/…) é um atributo trocável depois de adicionar."""
+    if department == "Hortifruti":
+        forms = _forms_for(row_map, department, category)
+        if len(forms) > 1:
+            options = "".join(
+                f'<option value="{escape(form)}"'
+                + (" selected" if form == unit else "")
+                + f">{escape(_TIPO_TITLE.get(form, form))}</option>"
+                for form in forms
+            )
+            return (
+                "<span class='uni'><label class='tipo'>Tipo</label>"
+                f"<select class='utype'>{options}</select></span>"
+            )
+    return f"<span class='uni'>{escape(_line_title(department, label, unit))}</span>"
 
 
 def _line_title(department: str, label: str, unit: str) -> str:
@@ -253,7 +289,7 @@ def _item_row(it: dict[str, Any], row_map: dict[str, Any]) -> str:
     note = escape(it.get("note") or "")
     qty = float(it.get("qty") or 1)
     qty_s = f"{qty:g}"
-    uni_text = escape(_line_title(dept, label, unit))
+    unit_html = _unit_html(dept, it["category"], unit, label, row_map)
     return (
         "<tr class='sli' data-id='" + str(it["id"]) + "'>"
         f"<td><input type='hidden' class='deptv' value=\"{escape(dept)}\">"
@@ -261,7 +297,7 @@ def _item_row(it: dict[str, Any], row_map: dict[str, Any]) -> str:
         f"<input type='hidden' class='formv' value=\"{escape(it['form'])}\">"
         f"<span class='dept'>{escape(dept)}</span>"
         f"<div class='sli-item'><h4>{escape(it['category'])}</h4>"
-        f"<span class='uni'>{uni_text}</span>"
+        f"{unit_html}"
         f"<span class='detail'>{detail}</span></div></td>"
         f"<td><select class='src'>{select_opts}</select></td>"
         f"<td><div class='qtywrap'><input class='qty' type='number' min='0.1' step='0.1' "
@@ -283,8 +319,11 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
   const label = s => LABEL[s] || s;
   const UT = {'kg':'kg','L':'litro','un':'unidade','pacote':'pacote'};
   const lineTitle = (d,lab,u) => d === 'Açougue' ? (lab + ' · ' + u) : ('por ' + (UT[u] || u));
+  const TP = {'kg':'Kilo','L':'Litro','un':'Unidade','pacote':'Pacote','caixa':'Caixa'};
+  const fold = s => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
   const cats = {};
   for (const k in ROWS) { const [d,c] = k.split('|'); (cats[d + '|' + c] = cats[d + '|' + c] || []).push(k); }
+  function formsFor(d,c){ const fs=[]; for (const k of (cats[d + '|' + c] || [])){ const f=ROWS[k].form; if (fs.indexOf(f)<0) fs.push(f); } return fs; }
   const catList = Object.keys(cats).sort();
   const search = document.getElementById('search');
   const deptSel = document.getElementById('deptfilter');
@@ -294,23 +333,41 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
   const tableEl = document.getElementById('sltable');
 
   function renderPick() {
-    const t = (search.value || '').trim().toLowerCase();
+    const t = fold(search.value.trim());
     const dept = deptSel.value;
     if (!t && dept === 'all') { pick.style.display = 'none'; pick.innerHTML = ''; hint.textContent = ''; return; }
     const show = catList.filter(gk => {
       const [d,c] = gk.split('|');
       if (dept !== 'all' && d !== dept) return false;
       if (!t) return true;
-      if (c.toLowerCase().includes(t)) return true;
-      if (d.toLowerCase().includes(t)) return true;
+      if (fold(c).includes(t)) return true;
+      if (fold(d).includes(t)) return true;
       for (const k of cats[gk]) {
         const info = ROWS[k];
-        if (info.label.toLowerCase().includes(t)) return true;
-        if (info.sources.some(s => ((s.sample||'') + ' ' + (s.store||'')).toLowerCase().includes(t))) return true;
+        if (fold(info.label).includes(t)) return true;
+        if (info.sources.some(s => fold((s.sample||'') + ' ' + (s.store||'')).includes(t))) return true;
       }
       return false;
     });
     pick.innerHTML = '';
+    const makeChip = (d,c,info) => {
+      const src = info.sources[0];
+      const chip = document.createElement('button'); chip.type = 'button'; chip.className = 'chiplink';
+      chip.textContent = lineTitle(d, info.label, info.unit) + ' · ' + label(src.slug) + ' ' + fmt(src.price) + '/' + info.unit;
+      chip.title = 'Adicionar com quantidade 1 (ajuste na linha)';
+      chip.onclick = async () => {
+        chip.disabled = true;
+        try {
+          const r = await fetch('/shopping-lists/' + LIST_ID + '/items', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({department:d, category:c, form:info.form, retailer:src.slug, qty:1})
+          });
+          if (r.ok) { addItem(await r.json()); } else { alert('Falha ao adicionar'); }
+        } catch (e) { alert('Falha ao adicionar'); }
+        chip.disabled = false;
+      };
+      return chip;
+    };
     for (const gk of show.slice(0, 30)) {
       const [d,c] = gk.split('|');
       const first = ROWS[cats[gk][0]];
@@ -319,33 +376,44 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
       const dept = document.createElement('span'); dept.className = 'dept';
       dept.textContent = first.department;
       cat.appendChild(document.createTextNode(c)); cat.appendChild(dept);
-      const forms = document.createElement('span'); forms.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
-      for (const k of cats[gk]) {
-        const info = ROWS[k];
-        const f = info.form;
-        const src = info.sources[0];
+      const forms = document.createElement('span'); forms.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;align-items:center';
+      if (d === 'Hortifruti') {
+        // produto canônico: adiciona direto; o tipo/unidade é escolhido na linha
+        const ks = cats[gk];
+        const defKey = ks.find(k => ROWS[k].form === 'kg') || ks[0];
+        const def = ROWS[defKey];
         const chip = document.createElement('button'); chip.type = 'button'; chip.className = 'chiplink';
-        chip.textContent = lineTitle(d, info.label, info.unit) + ' · ' + label(src.slug) + ' ' + fmt(src.price) + '/' + info.unit;
-        chip.title = 'Adicionar com quantidade 1 (ajuste na linha)';
+        chip.textContent = 'Adicionar (mais barato em ' + (TP[def.unit] || def.unit) + ')';
+        chip.title = 'Adiciona o produto ' + c + ' (qtd 1). Depois você escolhe o tipo (kg/unidade/…) na linha.';
         chip.onclick = async () => {
           chip.disabled = true;
           try {
+            const src = def.sources[0];
             const r = await fetch('/shopping-lists/' + LIST_ID + '/items', {
               method: 'POST', headers: {'Content-Type':'application/json'},
-              body: JSON.stringify({department:d, category:c, form:f, retailer:src.slug, qty:1})
+              body: JSON.stringify({department:d, category:c, form:def.form, retailer:src.slug, qty:1})
             });
             if (r.ok) { addItem(await r.json()); } else { alert('Falha ao adicionar'); }
           } catch (e) { alert('Falha ao adicionar'); }
           chip.disabled = false;
         };
         forms.appendChild(chip);
+        if (ks.length > 1) {
+          const defTipo = TP[def.unit] || def.unit;
+          const alt = ks.map(k => (TP[ROWS[k].form] || ROWS[k].form)).filter(x => x !== defTipo);
+          const note = document.createElement('span'); note.className = 'hint';
+          note.textContent = 'tipo na linha: ' + alt.join(' / ');
+          forms.appendChild(note);
+        }
+      } else {
+        for (const k of cats[gk]) forms.appendChild(makeChip(d, c, ROWS[k]));
       }
       row.appendChild(cat); row.appendChild(forms); pick.appendChild(row);
     }
     pick.style.display = show.length ? 'block' : 'none';
     hint.textContent = show.length
-      ? (show.length + (show.length > 30 ? '+' : '') + ' produto(s) — clique numa forma para adicionar (qtd 1)')
-      : (t ? 'Nada encontrado para "' + t + '"' : 'Nenhuma categoria neste departamento.');
+      ? (show.length + (show.length > 30 ? '+' : '') + ' produto(s) — clique para adicionar (qtd 1)')
+      : (t ? 'Nada encontrado para "' + search.value.trim() + '"' : 'Nenhuma categoria neste departamento.');
   }
   search.addEventListener('input', renderPick);
   deptSel.addEventListener('change', renderPick);
@@ -368,6 +436,15 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
     if (base && base.store) detParts.push(esc(base.store));
     if (base && base.sample) detParts.push(esc(base.sample));
     const qty = parseFloat(it.qty) || 1;
+    let unitHtml = "<span class='uni'>" + esc(lineTitle(dept, lab, unit)) + "</span>";
+    if (dept === 'Hortifruti') {
+      const fs = formsFor(dept, it.category);
+      if (fs.length > 1) {
+        unitHtml = "<span class='uni'><label class='tipo'>Tipo</label><select class='utype'>" +
+          fs.map(f => '<option value="' + esc(f) + '"' + (f === it.form ? ' selected' : '') + '>' + esc(TP[f] || f) + '</option>').join('') +
+          "</select></span>";
+      }
+    }
     const tr = document.createElement('tr'); tr.className = 'sli'; tr.dataset.id = it.id;
     tr.innerHTML =
       "<td><input type='hidden' class='deptv' value='" + esc(dept) + "'>" +
@@ -375,7 +452,7 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
       "<input type='hidden' class='formv' value='" + esc(it.form) + "'>" +
       "<span class='dept'>" + esc(dept) + "</span>" +
       "<div class='sli-item'><h4>" + esc(it.category) + "</h4>" +
-      "<span class='uni'>" + esc(lineTitle(dept, lab, unit)) + "</span>" +
+      unitHtml +
       "<span class='detail'>" + detParts.join(' · ') + "</span></div></td>" +
       "<td><select class='src'>" + opts + "</select></td>" +
       "<td><div class='qtywrap'><input class='qty' type='number' min='0.1' step='0.1' value='" + qty + "'><span class='uk'>" + esc(unit) + "</span></div></td>" +
@@ -386,6 +463,27 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
   }
   function bindRow(tr) {
     const id = tr.dataset.id;
+    const ut = tr.querySelector('select.utype');
+    if (ut) ut.addEventListener('change', async function(){
+      if (this.disabled) return;
+      this.disabled = true;
+      try {
+        const r = await fetch('/shopping-lists/items/' + id + '/unit', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({form: this.value})
+        });
+        if (!r.ok) { alert('Falha ao trocar o tipo'); this.disabled = false; return; }
+        const it = await r.json();
+        if (String(it.id) !== String(id)) { location.reload(); return; }
+        const info = ROWS[key(it.department, it.category, it.form)];
+        if (info && info.sources[0]) it.retailer = info.sources[0].slug;
+        persist(it.id, {retailer: it.retailer});
+        const nt = makeRow(it);
+        tr.replaceWith(nt);
+        bindRow(nt);
+        compute();
+      } catch (e) { this.disabled = false; }
+    });
     tr.querySelector('select.src').addEventListener('change', function(){ persist(id, {retailer: this.value}); compute(); });
     tr.querySelector('input.qty').addEventListener('input', function(){ persist(id, {qty: this.value}); compute(); });
     tr.querySelector('input.note').addEventListener('change', function(){ persist(id, {note: this.value}); });
@@ -402,9 +500,22 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
     const k = key(d, it.category, it.form);
     let existing = null;
     for (const tr of tbody.querySelectorAll('tr.sli')) {
-      if (key(tr.querySelector('.deptv').value, tr.querySelector('.cat').value, tr.querySelector('.formv').value) === k) { existing = tr; break; }
+      const td = tr.querySelector('.deptv').value;
+      const tc = tr.querySelector('.cat').value;
+      const tf = tr.querySelector('.formv').value;
+      const same = d === 'Hortifruti'
+        ? (td === d && tc === it.category)
+        : key(td, tc, tf) === k;
+      if (same) { existing = tr; break; }
     }
     if (existing) {
+      if (d === 'Hortifruti' && existing.querySelector('.formv').value !== it.form) {
+        // mesmo produto já está na lista com outro tipo: não duplica, foca a linha
+        existing.scrollIntoView({block: 'center'});
+        existing.style.outline = '2px solid var(--green)';
+        setTimeout(() => { existing.style.outline = ''; }, 900);
+        return;
+      }
       existing.querySelector('input.qty').value = parseFloat(it.qty) || 1;
       const sel = existing.querySelector('select.src');
       if (sel.querySelector('option[value="' + it.retailer + '"]')) sel.value = it.retailer;

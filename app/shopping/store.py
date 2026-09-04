@@ -128,6 +128,53 @@ def remove_item(db: Session, item_id: int) -> None:
     db.commit()
 
 
+def _to_dict(row: ShoppingListItem) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "department": row.department,
+        "category": row.category,
+        "form": row.form,
+        "retailer": row.retailer_slug,
+        "qty": float(row.qty),
+        "note": row.note,
+    }
+
+
+def switch_unit(db: Session, item_id: int, form: str) -> dict[str, Any] | None:
+    """Troca a unidade de venda ("tipo": kg/unidade/…) de um item.
+
+    Item de hortifrúti = produto canônico; a unidade é um atributo ajustado
+    depois de adicionar. Se o mesmo produto já existir na unidade de destino,
+    a linha atual é descartada e a existente prevalece (retornada).
+    """
+    obj = db.get(ShoppingListItem, item_id)
+    if obj is None:
+        return None
+    form = (form or "").strip()
+    if not form or form == obj.form:
+        return _to_dict(obj)
+    conflict = db.execute(
+        select(ShoppingListItem).where(
+            ShoppingListItem.list_id == obj.list_id,
+            ShoppingListItem.department == obj.department,
+            ShoppingListItem.category == obj.category,
+            ShoppingListItem.form == form,
+            ShoppingListItem.id != obj.id,
+        )
+    ).scalar_one_or_none()
+    if conflict is not None:
+        db.delete(obj)
+        db.commit()
+        db.refresh(conflict)
+        return _to_dict(conflict)
+    obj.form = form
+    # volta para a origem mais barata da nova unidade (auto na UI)
+    obj.retailer_slug = None
+    db.commit()
+    db.refresh(obj)
+    return _to_dict(obj)
+
+
 def items(db: Session, list_id: int) -> list[dict[str, Any]]:
     rows = db.execute(
         select(ShoppingListItem)

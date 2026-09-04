@@ -1011,6 +1011,17 @@ def shopping_update_item(item_id: int, payload: dict, db: Session = Depends(get_
     return updated
 
 
+@app.post("/shopping-lists/items/{item_id}/unit")
+def shopping_set_unit(item_id: int, payload: dict, db: Session = Depends(get_db)):
+    """Troca a unidade de venda ('tipo': kg/unidade/…) de um item já na lista."""
+    updated = shopping_store.switch_unit(
+        db, item_id, str(payload.get("form") or "")
+    )
+    if updated is None:
+        raise HTTPException(404, "Item não encontrado")
+    return updated
+
+
 @app.post("/shopping-lists/items/{item_id}/delete")
 def shopping_remove_item(item_id: int, db: Session = Depends(get_db)):
     shopping_store.remove_item(db, item_id)

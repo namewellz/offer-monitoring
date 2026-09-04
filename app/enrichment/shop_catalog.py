@@ -20,6 +20,7 @@ from sqlalchemy import select
 from app.catalog.v2.read import current_listings
 from app.db.models_v2 import LlmCategoryLabel, LlmClassification
 from app.enrichment.butcher import butcher_comparison
+from app.enrichment.produce import normalize_produce
 from app.enrichment.units import (
     PACKAGE_CATEGORIES,
     parse_package_quantity,
@@ -76,7 +77,7 @@ def _generic_lines(db: Any) -> list[dict[str, Any]]:
             LlmClassification.line_key,
         ).where(
             LlmClassification.decision == "accept",
-            LlmClassification.department != "Açougue",
+            LlmClassification.department.notin_(("Açougue", "Hortifruti")),
         )
     ).all()
     overrides = {
@@ -125,7 +126,9 @@ def _generic_lines(db: Any) -> list[dict[str, Any]]:
             current = per_retailer.get(key)
             if current is None or per < current["price"]:
                 per_retailer[key] = {
-                    "price": per, "store": store, "sample": raw,
+                    "price": per,
+                    "store": store,
+                    "sample": raw,
                 }
         for (retailer, family), info in per_retailer.items():
             gkey = (dept, canonical, family)
@@ -147,7 +150,9 @@ def _generic_lines(db: Any) -> list[dict[str, Any]]:
 
     lines = []
     for (dept, canonical, family), group in groups.items():
-        sources = {slug: info for slug, info in group["sources"].items() if info["price"] is not None}
+        sources = {
+            slug: info for slug, info in group["sources"].items() if info["price"] is not None
+        }
         if not sources:
             continue
         unit = _FAMILY_BASE[family]
@@ -164,13 +169,114 @@ def _generic_lines(db: Any) -> list[dict[str, Any]]:
     return lines
 
 
+def _group_produce(
+    entries: list[tuple[int, float, str, str, str]],
+    canonical: dict[int, str],
+) -> list[dict[str, Any]]:
+    """Group Hortifrúti listings into pickable lines (pure, DB-free).
+
+    Each listing entry is (pid, price, raw, retailer, store). Product rows are
+    keyed by the canonical produce identity ("Maçã Fuji") when the raw name is
+    recognized by the produce normalizer; unrecognized products fall back to
+    the classification canonical category (ex.: "Ovo de Granja"). Lines keep
+    the sale-unit family (kg / L / un) as the ``form`` so the same product can
+    be offered both per kg and per unidade.
+    """
+    groups: dict[tuple[str, str], dict[str, Any]] = {}
+    for pid, price, raw, retailer, store in entries:
+        prod = normalize_produce(raw)
+        name = prod.product if prod is not None else canonical.get(pid)
+        if not name:
+            continue
+        unit = parse_quantity(raw)
+        if unit is None or unit.amount_base <= 0:
+            continue
+        per = price / unit.amount_base
+        gkey = (name, unit.family)
+        group = groups.setdefault(gkey, {"products": set(), "sources": {}})
+        group["products"].add(pid)
+        acc = group["sources"].setdefault(retailer, {"price": None, "store": None, "sample": None})
+        if acc["price"] is None or per < acc["price"]:
+            acc["price"] = per
+            acc["store"] = store
+            acc["sample"] = raw
+
+    order = {"mass": 0, "vol": 1, "units": 2, "package": 3}
+    lines = []
+    for (name, family), group in groups.items():
+        sources = {
+            slug: info for slug, info in group["sources"].items() if info["price"] is not None
+        }
+        if not sources:
+            continue
+        unit = _FAMILY_BASE[family]
+        lines.append(
+            {
+                "department": "Hortifruti",
+                "category": name,
+                "form": unit,  # form = sale-unit family (kg / L / un)
+                "label": unit,
+                "unit": unit,
+                "sources": sources,
+                "products": len(group["products"]),
+            }
+        )
+    lines.sort(key=lambda line: (line["category"].lower(), order.get(line["form"], 99)))
+    return lines
+
+
+def _produce_lines(db: Any) -> list[dict[str, Any]]:
+    """Pickable Hortifrúti lines: produce identity products per sale unit."""
+    accepts = db.execute(
+        select(
+            LlmClassification.source_product_id,
+            LlmClassification.line_key,
+        ).where(
+            LlmClassification.decision == "accept",
+            LlmClassification.department == "Hortifruti",
+        )
+    ).all()
+    overrides = {
+        (dept, label): canonical
+        for dept, label, canonical in db.execute(
+            select(
+                LlmCategoryLabel.department,
+                LlmCategoryLabel.label,
+                LlmCategoryLabel.canonical,
+            )
+        ).all()
+    }
+    pid_canon: dict[int, str] = {}
+    for pid, label in accepts:
+        pid_canon[int(pid)] = overrides.get(("Hortifruti", label), label)
+    pids = set(pid_canon)
+    if not pids:
+        return []
+
+    entries: list[tuple[int, float, str, str, str]] = []
+    for row in current_listings(db):
+        pid = row[_IDX["pid"]]
+        if pid not in pids:
+            continue
+        cents = row[_IDX["cents"]]
+        if cents is None or cents <= 0:
+            continue
+        entries.append(
+            (
+                pid,
+                cents / 100.0,
+                row[_IDX["raw"]] or "",
+                row[_IDX["retailer"]],
+                row[_IDX["store"]] or "",
+            )
+        )
+    return _group_produce(entries, pid_canon)
+
+
 def catalog_rows(db: Any) -> list[dict[str, Any]]:
     """All pickable lines for the shopping builder (cached)."""
-    if (
-        _CACHE["payload"] is None
-        or time.time() - _CACHE["ts"] > _TTL
-    ):
-        payload = _butcher_lines(db) + _generic_lines(db)
+    if _CACHE["payload"] is None or time.time() - _CACHE["ts"] > _TTL:
+        payload = _butcher_lines(db) + _produce_lines(db) + _generic_lines(db)
         _CACHE["payload"] = payload
         _CACHE["ts"] = time.time()
     return _CACHE["payload"]
