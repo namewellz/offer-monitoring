@@ -69,6 +69,8 @@ from app.enrichment.department_review import department_review
 from app.enrichment.department_review_dashboard import render_department_review_page
 from app.enrichment.dept_prices import dept_price_rows
 from app.enrichment.dept_prices_dashboard import render_dept_prices_page
+from app.enrichment.produce_prices import produce_price_rows
+from app.enrichment.produce_prices_dashboard import render_produce_prices_page
 from app.enrichment.review import butcher_review
 from app.enrichment.review_dashboard import render_butcher_review
 from app.enrichment.shop_catalog import catalog_rows
@@ -111,6 +113,12 @@ def _butcher_warm_loop() -> None:
         except Exception:
             pass
         try:
+            from app.enrichment.produce_prices import warm_produce_prices
+
+            warm_produce_prices("Hortifruti")
+        except Exception:
+            pass
+        try:
             from app.enrichment.shop_catalog import warm_shop_catalog
 
             warm_shop_catalog()
@@ -127,6 +135,12 @@ async def lifespan(app: FastAPI):
         from app.enrichment.butcher import warm_butcher_cache
 
         warm_butcher_cache()
+    except Exception:
+        pass
+    try:
+        from app.enrichment.produce_prices import warm_produce_prices
+
+        warm_produce_prices("Hortifruti")
     except Exception:
         pass
     threading.Thread(target=_butcher_warm_loop, daemon=True, name="butcher-warm").start()
@@ -262,8 +276,7 @@ def catalog_price_query(
             CatalogPriceObservation.available.is_(True),
             CatalogPriceObservation.sales_price.is_not(None),
             or_(
-                CatalogPriceObservation.regular_price
-                > CatalogPriceObservation.sales_price,
+                CatalogPriceObservation.regular_price > CatalogPriceObservation.sales_price,
                 CatalogPriceObservation.discount > 0,
                 func.jsonb_array_length(CatalogPriceObservation.tier_prices) > 0,
                 CatalogPriceObservation.offer_tags.contains(["promotion"]),
@@ -342,9 +355,7 @@ def catalog_price_change_results(
         )
     )
     rows = db.execute(
-        query.order_by(*ordering)
-        .offset(max(offset, 0))
-        .limit(min(max(limit, 1), 1000))
+        query.order_by(*ordering).offset(max(offset, 0)).limit(min(max(limit, 1), 1000))
     ).all()
     results = []
     for observation, catalog_product, run, catalog_retailer, catalog_store in rows:
@@ -422,9 +433,7 @@ def catalog_price_history_results(
     if retailer:
         query = query.where(Retailer.slug == retailer)
     rows = db.execute(
-        query.order_by(CatalogPriceObservation.observed_at.desc()).limit(
-            min(max(limit, 1), 5000)
-        )
+        query.order_by(CatalogPriceObservation.observed_at.desc()).limit(min(max(limit, 1), 5000))
     ).all()
     return [
         {
@@ -504,9 +513,7 @@ def offer_results(
             None,
         )
         from_to = next((price for price in prices if price.type == "FROM_TO"), None)
-        fallback = next(
-            (price for price in prices if price.price is not None), None
-        )
+        fallback = next((price for price in prices if price.price is not None), None)
         if conditional:
             normal_price = unit_price.price if unit_price else conditional.previous_price
             offer_price = conditional.price
@@ -557,7 +564,7 @@ def dashboard(product: str | None = None, db: Session = Depends(get_db)):
         )
         rows.append(
             "<tr>"
-            f"<td><a href=\"{result['source_image']}\" target=\"_blank\">{escape(result['product'])}</a></td>"
+            f'<td><a href="{result["source_image"]}" target="_blank">{escape(result["product"])}</a></td>'
             f"<td>{escape(price_text)}</td>"
             f"<td>{escape(result['supermarket'])}</td>"
             f"<td>{escape(result['store'])} — {escape(result['city'])}</td>"
@@ -577,9 +584,9 @@ table{{width:100%;border-collapse:collapse}}th,td{{padding:14px;text-align:left;
 th{{background:#eef7f2;white-space:nowrap}}small{{color:#607080}}
 </style></head><body><main><h1>Ofertas monitoradas</h1>
 <small>{len(results)} oferta(s) da extração mais recente de cada encarte · <a href="/annotation">Revisar marcações</a> · <a href="/catalog">Variações de preço</a></small>
-<form><input name="product" value="{escape(product or '')}" placeholder="Buscar produto"><button>Buscar</button></form>
+<form><input name="product" value="{escape(product or "")}" placeholder="Buscar produto"><button>Buscar</button></form>
 <div class="table"><table><thead><tr><th>Produto</th><th>Preço</th><th>Supermercado</th><th>Loja</th><th>Validade</th></tr></thead>
-<tbody>{''.join(rows) or empty}</tbody></table></div></main></body></html>"""
+<tbody>{"".join(rows) or empty}</tbody></table></div></main></body></html>"""
 
 
 @app.get("/offer-results")
@@ -808,9 +815,7 @@ def butcher_dashboard(limit: int = 300, all: int = 0, db: Session = Depends(get_
 
 @app.get("/catalog/cuts.json")
 def butcher_json(limit: int = 300, all: int = 0, db: Session = Depends(get_db)):
-    result = butcher_comparison(
-        db, limit=min(max(limit, 1), 2000), use_llm=all == 0
-    )
+    result = butcher_comparison(db, limit=min(max(limit, 1), 2000), use_llm=all == 0)
     groups = []
     for group in result["groups"]:
         groups.append(
@@ -840,9 +845,7 @@ def butcher_json(limit: int = 300, all: int = 0, db: Session = Depends(get_db)):
 
 
 @app.get("/catalog/butcher-review", response_class=HTMLResponse, include_in_schema=False)
-def butcher_review_page(
-    db: Session = Depends(get_db), department: str = "Açougue"
-):
+def butcher_review_page(db: Session = Depends(get_db), department: str = "Açougue"):
     """Revisão de classificação por departamento.
 
     Açougue usa a revisão determinística (parser de cortes + overlay LLM); os
@@ -861,39 +864,40 @@ def butcher_review_json(db: Session = Depends(get_db)):
 
 
 @app.get("/catalog/dept-prices", response_class=HTMLResponse, include_in_schema=False)
-def dept_prices_page(
-    db: Session = Depends(get_db), department: str = "Mercearia"
-):
+def dept_prices_page(db: Session = Depends(get_db), department: str = "Mercearia"):
     """Comparativo de preços por unidade de um departamento (LLM-accepted)."""
     return render_dept_prices_page(dept_price_rows(db, department))
 
 
 @app.get("/catalog/dept-prices.json")
-def dept_prices_json(
-    db: Session = Depends(get_db), department: str = "Mercearia"
-):
+def dept_prices_json(db: Session = Depends(get_db), department: str = "Mercearia"):
     return dept_price_rows(db, department)
 
 
+@app.get("/catalog/produce-prices", response_class=HTMLResponse, include_in_schema=False)
+def produce_prices_page(db: Session = Depends(get_db)):
+    """Onde comprar cada produto de hortifrúti mais barato (R$/kg)."""
+    return render_produce_prices_page(produce_price_rows(db, "Hortifruti"))
+
+
+@app.get("/catalog/produce-prices.json")
+def produce_prices_json(db: Session = Depends(get_db)):
+    return produce_price_rows(db, "Hortifruti")
+
+
 @app.get("/catalog/department-review", response_class=HTMLResponse, include_in_schema=False)
-def department_review_page(
-    db: Session = Depends(get_db), department: str = "Mercearia"
-):
+def department_review_page(db: Session = Depends(get_db), department: str = "Mercearia"):
     """Revisão da classificação de um departamento (não só Açougue)."""
     return render_department_review_page(department_review(db, department))
 
 
 @app.get("/catalog/department-review.json")
-def department_review_json(
-    db: Session = Depends(get_db), department: str = "Mercearia"
-):
+def department_review_json(db: Session = Depends(get_db), department: str = "Mercearia"):
     return department_review(db, department)
 
 
 @app.get("/catalog/categories", response_class=HTMLResponse, include_in_schema=False)
-def categories_page(
-    db: Session = Depends(get_db), department: str = "Açougue"
-):
+def categories_page(db: Session = Depends(get_db), department: str = "Açougue"):
     """Painel de edição das categorias canônicas de um departamento."""
     seed_categories(db, department=department)
     return render_categories_page(
@@ -916,9 +920,7 @@ def categories_json(db: Session = Depends(get_db), department: str = "Açougue")
 
 
 @app.post("/catalog/categories")
-def categories_update(
-    updates: dict, db: Session = Depends(get_db), department: str = "Açougue"
-):
+def categories_update(updates: dict, db: Session = Depends(get_db), department: str = "Açougue"):
     """Salva os nomes canônicos de um departamento (updates: [{label, canonical}])."""
     seed_categories(db, department=department)
     payload = updates.get("updates") or []
@@ -926,9 +928,7 @@ def categories_update(
 
 
 @app.post("/catalog/categories/normalize")
-def categories_normalize(
-    db: Session = Depends(get_db), department: str = "Açougue"
-):
+def categories_normalize(db: Session = Depends(get_db), department: str = "Açougue"):
     """Aplica a normalização automática dos nomes canônicos de um departamento."""
     seed_categories(db, department=department)
     result = normalize_all(db, department=department, commit=True)
@@ -940,6 +940,7 @@ def categories_normalize(
 
 
 # --- Lista de compras ---------------------------------------------------------
+
 
 def _shopping_rows(db: Session) -> list:
     return catalog_rows(db)
@@ -981,9 +982,7 @@ def shopping_builder(list_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/shopping-lists/{list_id}/items")
-def shopping_add_item(
-    list_id: int, payload: dict, db: Session = Depends(get_db)
-):
+def shopping_add_item(list_id: int, payload: dict, db: Session = Depends(get_db)):
     obj = shopping_store.get_list(db, list_id)
     if obj is None:
         raise HTTPException(404, "Lista não encontrada")
@@ -1147,16 +1146,9 @@ def catalog_dashboard(
     if view not in {"all", "offers", "changes"}:
         raise HTTPException(400, "view must be all, offers or changes")
     page_size = 100
-    fast_path = (
-        view == "all"
-        and department is None
-        and direction == "all"
-        and minimum_percent == 0
-    )
+    fast_path = view == "all" and department is None and direction == "all" and minimum_percent == 0
     if fast_path:
-        total_results = v2_count_current_listings(
-            db, product=product, retailer=retailer
-        )
+        total_results = v2_count_current_listings(db, product=product, retailer=retailer)
         total_pages = max(1, (total_results + page_size - 1) // page_size)
         page = min(max(page, 1), total_pages)
         rows = v2_current_listings(
@@ -1262,21 +1254,21 @@ th{{background:#eef7f2;white-space:nowrap}}th.sortable{{cursor:pointer;user-sele
 .up{{color:#b42318;font-weight:700}}.down{{color:#067647;font-weight:700}}small{{color:#607080}}
 </style></head><body><main><h1>Variações de preço</h1>
 <small>Comparação entre a coleta atual e a imediatamente anterior do mesmo produto e da mesma loja. Todo o histórico permanece armazenado.</small>
-<form><input name="product" value="{escape(product or '')}" placeholder="Buscar produto">
+<form><input name="product" value="{escape(product or "")}" placeholder="Buscar produto">
 <select name="department"><option value="">Todos os departamentos</option>{department_options}</select>
 <select name="retailer"><option value="">Todos os supermercados</option>
-<option value="arena-atacado" {'selected' if retailer == 'arena-atacado' else ''}>Arena Atacado</option>
-<option value="goodbom" {'selected' if retailer == 'goodbom' else ''}>GoodBom</option>
-<option value="atacadao" {'selected' if retailer == 'atacadao' else ''}>Atacadão</option>
-<option value="savegnago" {'selected' if retailer == 'savegnago' else ''}>Savegnago</option>
-<option value="davitta" {'selected' if retailer == 'davitta' else ''}>Davitta</option>
-<option value="assai" {'selected' if retailer == 'assai' else ''}>Assaí</option>
-<option value="tenda" {'selected' if retailer == 'tenda' else ''}>Tenda Atacado</option>
-<option value="sao-vicente" {'selected' if retailer == 'sao-vicente' else ''}>São Vicente</option>
-<option value="max-atacadista" {'selected' if retailer == 'max-atacadista' else ''}>Max Atacadista</option></select>
+<option value="arena-atacado" {"selected" if retailer == "arena-atacado" else ""}>Arena Atacado</option>
+<option value="goodbom" {"selected" if retailer == "goodbom" else ""}>GoodBom</option>
+<option value="atacadao" {"selected" if retailer == "atacadao" else ""}>Atacadão</option>
+<option value="savegnago" {"selected" if retailer == "savegnago" else ""}>Savegnago</option>
+<option value="davitta" {"selected" if retailer == "davitta" else ""}>Davitta</option>
+<option value="assai" {"selected" if retailer == "assai" else ""}>Assaí</option>
+<option value="tenda" {"selected" if retailer == "tenda" else ""}>Tenda Atacado</option>
+<option value="sao-vicente" {"selected" if retailer == "sao-vicente" else ""}>São Vicente</option>
+<option value="max-atacadista" {"selected" if retailer == "max-atacadista" else ""}>Max Atacadista</option></select>
 <select name="direction"><option value="all">Todas as variações</option>
-<option value="up" {'selected' if direction == 'up' else ''}>Aumentos</option>
-<option value="down" {'selected' if direction == 'down' else ''}>Reduções</option></select>
+<option value="up" {"selected" if direction == "up" else ""}>Aumentos</option>
+<option value="down" {"selected" if direction == "down" else ""}>Reduções</option></select>
 <input name="minimum_percent" type="number" min="0" step="0.1" value="{minimum_percent}" title="Variação mínima em %">
 <button>Filtrar</button></form>
 <small>Clique nos títulos para ordenar. Novos cliques em outras colunas acumulam prioridades.</small>
@@ -1285,7 +1277,7 @@ th{{background:#eef7f2;white-space:nowrap}}th.sortable{{cursor:pointer;user-sele
 <th class="sortable" data-key="store">Loja</th><th class="sortable" data-key="previous">Anterior</th>
 <th class="sortable" data-key="current">Atual</th><th class="sortable condition" data-key="condition">Condição do preço</th>
 <th class="sortable" data-key="change">Variação</th><th class="sortable" data-key="observed">Coleta</th></tr></thead>
-<tbody>{''.join(rows) or empty}</tbody></table></div>
+<tbody>{"".join(rows) or empty}</tbody></table></div>
 <script>
 const table = document.getElementById('catalog-table');
 const sorting = [];
@@ -1413,9 +1405,7 @@ def offers(
 @app.get("/offers/{offer_id}")
 def offer(offer_id: str, db: Session = Depends(get_db)):
     item = item_or_404(db.get(ProductOffer, offer_id), "Offer")
-    packages = db.scalars(
-        select(OfferPackage).where(OfferPackage.offer_id == item.id)
-    ).all()
+    packages = db.scalars(select(OfferPackage).where(OfferPackage.offer_id == item.id)).all()
     prices = db.scalars(select(OfferPrice).where(OfferPrice.offer_id == item.id)).all()
     return {
         "offer": item,

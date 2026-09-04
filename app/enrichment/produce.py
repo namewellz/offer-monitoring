@@ -56,7 +56,7 @@ _FRUIT_SYNONYMS: dict[str, tuple[str, ...]] = {
 # e.g. "Maçã Argentina", "Maçã Bulnez", "Maçã Importada Vermelha" all group
 # under the canonical product "Maçã".
 _VARIETIES: dict[str, tuple[str, ...]] = {
-    "Maçã": ("fuji", "gala", "pink lady", "granny smith"),
+    "Maçã": ("fuji", "gala", "pink lady", "granny smith", "golden"),
     "Banana": ("prata", "nanica", "maca", "caturra", "terra", "ouro", "sao tome"),
     "Laranja": ("pera", "lima", "bahia", "valencia"),
     "Tomate": ("italiano", "salada", "carmen", "holandes", "cereja", "uva", "gaucho"),
@@ -106,11 +106,14 @@ def _beautify(token: str) -> str:
     return _BEAUTY.get(token, _title(token))
 
 
-def _detect_fruit(words: list[str]) -> tuple[str | None, list[str]]:
+def _detect_fruit(words: list[str]) -> tuple[str | None, int]:
     """Return (canonical fruit, index of the fruit token)."""
     for idx, word in enumerate(words):
         for fruit, synonyms in _FRUIT_SYNONYMS.items():
-            if word in synonyms:
+            candidates = (word,)
+            if word.endswith("s") and len(word) > 3:
+                candidates = (word, word[:-1])  # plurals: "macas" -> "maca"
+            if any(candidate in synonyms for candidate in candidates):
                 return fruit, idx
     return None, -1
 
