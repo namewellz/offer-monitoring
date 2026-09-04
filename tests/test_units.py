@@ -1,4 +1,8 @@
-from app.enrichment.units import UNIT_CATEGORIES, parse_quantity, parse_unit_quantity
+from app.enrichment.units import (
+    PACKAGE_CATEGORIES,
+    parse_package_quantity,
+    parse_quantity,
+)
 
 
 def _m(name: str) -> float | None:
@@ -56,20 +60,17 @@ def test_no_unit_returns_none():
     assert parse_quantity("") is None
 
 
-def test_unit_categories_includes_pao_de_alho():
-    assert "Pão de Alho" in UNIT_CATEGORIES
-    assert "Pão de Queijo" in UNIT_CATEGORIES
+def test_package_categories_includes_pao_de_alho():
+    assert "Pão de Alho" in PACKAGE_CATEGORIES
+    assert "Pão de Queijo" in PACKAGE_CATEGORIES
 
 
-def test_parse_unit_quantity_counts():
-    # even with a weight present, unit-category parse counts the pieces
-    p = parse_unit_quantity("Pão de Alho Seara 300g c/ 6 un")
-    assert p.family == "units"
-    assert abs(p.amount_base - 6.0) < 1e-9
-    assert parse_unit_quantity("Pão de Queijo 250g com 12 unidades").amount_base == 12.0
-
-
-def test_parse_unit_quantity_defaults_to_one():
-    p = parse_unit_quantity("Pão de Alho Temperado 320g")
-    assert p.family == "units"
+def test_parse_package_quantity_is_one_package():
+    # package = 1, regardless of weight or piece count in the name
+    p = parse_package_quantity("Pão de Alho Seara 300g c/ 6 un")
+    assert p.family == "package"
+    assert p.display == "pacote"
     assert abs(p.amount_base - 1.0) < 1e-9
+    p2 = parse_package_quantity("Pão de Alho Temperado 320g")
+    assert p2.family == "package"
+    assert abs(p2.amount_base - 1.0) < 1e-9

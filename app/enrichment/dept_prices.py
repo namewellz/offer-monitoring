@@ -17,7 +17,11 @@ from sqlalchemy import select
 from app.catalog.v2.read import current_listings
 from app.classification.canonical import canonical_map
 from app.db.models_v2 import LlmClassification
-from app.enrichment.units import UNIT_CATEGORIES, parse_quantity, parse_unit_quantity
+from app.enrichment.units import (
+    PACKAGE_CATEGORIES,
+    parse_package_quantity,
+    parse_quantity,
+)
 
 _IDX = {
     "cents": 2,
@@ -27,8 +31,8 @@ _IDX = {
     "store": 15,
 }
 
-_FAMILY_BASE = {"mass": "kg", "vol": "L", "units": "un"}
-_FAMILY_ORDER = {"mass": 0, "vol": 1, "units": 2}
+_FAMILY_BASE = {"mass": "kg", "vol": "L", "units": "un", "package": "pacote"}
+_FAMILY_ORDER = {"mass": 0, "vol": 1, "units": 2, "package": 3}
 
 # TTL cache, same philosophy as butcher comparison (warmed by api startup thread).
 _CACHE: dict[str, Any] = {"key": None, "payload": None, "ts": 0.0}
@@ -105,8 +109,8 @@ def _compute(db: Any, department: str) -> dict[str, Any]:
         parsed = []  # (retailer, store, per_base, family, raw)
         for retailer, store, price, raw in listing_list:
             unit = (
-                parse_unit_quantity(raw)
-                if canon_cat in UNIT_CATEGORIES
+                parse_package_quantity(raw)
+                if canon_cat in PACKAGE_CATEGORIES
                 else parse_quantity(raw)
             )
             if unit is None or unit.amount_base <= 0:

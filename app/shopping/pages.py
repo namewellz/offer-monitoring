@@ -62,7 +62,7 @@ def _brl(value: float | None) -> str:
     return f"R$ {value:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
 
 
-_UNIT_TITLE = {"kg": "kg", "L": "litro", "un": "unidade"}
+_UNIT_TITLE = {"kg": "kg", "L": "litro", "un": "unidade", "pacote": "pacote"}
 
 
 def _unit_title(unit: str) -> str:
@@ -267,7 +267,7 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
   const fmt = v => 'R$ ' + Number(v).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
   const key = (d,c,f) => d + '|' + c + '|' + f;
   const label = s => LABEL[s] || s;
-  const UT = {'kg':'kg','L':'litro','un':'unidade'};
+  const UT = {'kg':'kg','L':'litro','un':'unidade','pacote':'pacote'};
   const lineTitle = (d,lab,u) => d === 'Açougue' ? (lab + ' · ' + u) : ('por ' + (UT[u] || u));
   const cats = {};
   for (const k in ROWS) { const [d,c] = k.split('|'); (cats[d + '|' + c] = cats[d + '|' + c] || []).push(k); }

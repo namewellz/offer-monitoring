@@ -20,10 +20,14 @@ from sqlalchemy import select
 from app.catalog.v2.read import current_listings
 from app.db.models_v2 import LlmCategoryLabel, LlmClassification
 from app.enrichment.butcher import butcher_comparison
-from app.enrichment.units import UNIT_CATEGORIES, parse_quantity, parse_unit_quantity
+from app.enrichment.units import (
+    PACKAGE_CATEGORIES,
+    parse_package_quantity,
+    parse_quantity,
+)
 
 _IDX = {"cents": 2, "pid": 7, "raw": 9, "retailer": 14, "store": 15}
-_FAMILY_BASE = {"mass": "kg", "vol": "L", "units": "un"}
+_FAMILY_BASE = {"mass": "kg", "vol": "L", "units": "un", "package": "pacote"}
 
 _CACHE: dict[str, Any] = {"ts": 0.0, "payload": None}
 _TTL = 300
@@ -110,8 +114,8 @@ def _generic_lines(db: Any) -> list[dict[str, Any]]:
         per_retailer: dict[tuple[str, str], dict[str, Any]] = {}
         for retailer, store, price, raw in listing_list:
             unit = (
-                parse_unit_quantity(raw)
-                if canonical in UNIT_CATEGORIES
+                parse_package_quantity(raw)
+                if canonical in PACKAGE_CATEGORIES
                 else parse_quantity(raw)
             )
             if unit is None or unit.amount_base <= 0:
