@@ -5,26 +5,45 @@
 > e o mesmo playbook que já validamos no Açougue. Prioridade de partida
 > (definida pelo usuário): **1) Mercearia · 2) Bebidas · 3) Frios e Laticínios**.
 
-## Status atual (2026-09-03)
+## Status atual (2026-09-04)
 
-- ✅ **Fase 0** — fundação multi-departamento entregue (commit `188a07f`,
-  migração `0013`): coluna `department` em classificações/categorias, prompts/
-  coletores/painéis genéricos, seletor de departamento, tela revisão por dept.
-- ✅ **Fase 1 — Mercearia**: rodada completa persistida — **14.790 aceitos ·
-  4.173 NAO_MERCEARIA** (de 18.963 candidatos), **154 categorias canônicas**.
-  Validada pelo usuário.
-- ✅ **Fase 2 — Bebidas**: rodada completa persistida — **8.236 aceitos ·
-  1.082 NAO_BEBIDAS** (de 9.318 candidatos), **51 categorias canônicas**.
-  JSON: `outputs/llm_bebidas.json`.
-- ✅ **Fase 3 — Frios e Laticínios**: rodada completa persistida —
-  **5.104 aceitos · 1.998 NAO_FRIOS_E_LATICINIOS** (de 7.102 candidatos),
-  **53 categorias canônicas**. JSON: `outputs/llm_frios.json`.
-- 🔎 Revisão/merge disponível por dept (`?department=` em Categorias e
-  `/catalog/department-review`). Invariante garantida: **0 produto aceito em 2
-  departamentos**.
-- ⏭️ Próximas (após validar Bebidas/Frios): demais grandes (Higiene, Bazar,
-  Limpeza) → médios (Doces, Padaria, Hortifruti, Congelados, Pet, Saudáveis,
-  Peixaria) → "Outros" + auditoria.
+Toda a base foi classificada por departamento (rodadas DeepSeek persistidas,
+categorias semeadas; **aguardando validação do usuário**).
+
+| Departamento | Pool | Aceitos | NAO | Categorias |
+|---|---:|---:|---:|---:|
+| Açougue | (já feito) | 4.989 | 2.933 | 435 |
+| Mercearia | 18.963 | 15.650 | 4.173 | 302 |
+| Bebidas | 9.318 | 8.599 | 1.082 | 92 |
+| Frios e Laticínios | 7.102 | 5.218 | 1.998 | 73 |
+| Higiene | 10.983 | 10.337 | 1.113 | 107 |
+| Bazar e Utilidades | 8.199 | 8.004 | 1.287 | 278 |
+| Limpeza | 6.066 | 5.964 | 666 | 129 |
+| Doces e Sobremesas | 5.151 | 4.352 | 984 | 64 |
+| Padaria | 3.018 | 1.328 | 1.709 | 44 |
+| Hortifruti | 2.616 | 1.349 | 1.451 | 95 |
+| Congelados | 1.003 | 827 | 273 | 52 |
+| Pet Shop | 1.391 | 1.130 | 345 | 39 |
+| Saudáveis e Orgânicos | 985 | 492 | 540 | 46 |
+| Peixaria | 382 | 49 | 333 | 10 |
+| Outros (descoberta) | 4.136 | → distribuído p/ depts | — | — |
+| **Total aceitos** | | **68.341** | | ~1.766 |
+
+- "Outros": 4.136 itens sem departamento claro foram classificados por descoberta
+  (LLM decide dept + categoria) e **distribuídos aos departamentos** (apenas 53
+  permaneceram em Outros). JSON: `outputs/llm_outros_*.json`.
+- Invariante garantida: **0 produto aceito em 2 departamentos** (verificado).
+- JSONs por departamento em `outputs/llm_<dept>*.json`; logs em
+  `outputs/*_run.log`.
+- **Validação**: revisar/agrupar categorias por dept em
+  `/catalog/department-review?department=<Dept>` e
+  `/catalog/categories?department=<Dept>`. Departamentos com muita rejeição
+  (Padaria/Hortifruti/Peixaria) — o pool da taxonomia incluía itens de outros
+  depts e a LLM os rejeitou corretamente; conferir se há rejeitos que deveriam
+  ter categoria própria.
+- ⏭️ Próximos passos possíveis: refinar vocabulário por dept (painel), aferição
+  de preço por departamento, e tratamento dos rejeitos que pertencem a outros
+  departamentos (rodada cruzada opcional).
 
 ## Tamanho da base (distribuição aproximada por departamento — taxonomia atual)
 
