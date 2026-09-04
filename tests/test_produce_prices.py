@@ -89,3 +89,24 @@ def test_per_kg_normalization():
     assert _per_kg(9.98, "Kg", None) == 9.98        # implicit 1 kg
     assert _per_kg(3.5, "Unidade", None) is None    # cannot normalize
     assert _per_kg(24.99, "", 1000.0) == 24.99
+
+
+def test_morango_is_package_not_per_kg():
+    entries = [
+        _entry(1, "Morango Bandeja 250g", 7.99, "atacadao"),
+        _entry(2, "Morango Bandeja 250g", 8.99, "tenda", retailer_name="Tenda"),
+        _entry(3, "Maçã Fuji Kg", 9.98, "atacadao"),
+    ]
+    identities, unmodeled = _aggregate(entries)
+    assert unmodeled == 0
+    by_name = {it["product"]: it for it in identities}
+    morango = by_name["Morango"]
+    assert morango["is_package"] is True
+    assert morango["has_kg"] is False
+    assert morango["best"]["slug"] == "atacadao"
+    assert morango["best"]["per_pkg"] == 7.99
+    assert morango["best"]["per_kg"] is None
+    assert [r["slug"] for r in morango["retailers"]] == ["atacadao", "tenda"]
+    # Maçã Fuji keeps being compared per kg
+    assert by_name["Maçã Fuji"]["is_package"] is False
+    assert by_name["Maçã Fuji"]["has_kg"] is True

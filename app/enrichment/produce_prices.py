@@ -23,6 +23,7 @@ from sqlalchemy import select
 from app.catalog.v2.read import current_listings
 from app.db.models_v2 import LlmClassification
 from app.enrichment.produce import normalize_produce
+from app.enrichment.units import PACKAGE_CATEGORIES
 
 _IDX = {"cents": 2, "pid": 7, "raw": 9, "retailer_name": 13, "retailer": 14, "store": 15}
 
@@ -61,13 +62,16 @@ def _per_kg(price: float, form: str, weight_g: float | None) -> float | None:
     return None
 
 
-def _aggregate(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _aggregate(entries: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
     """Group listing entries by canonical produce identity and rank retailers.
 
     ``entries`` items: {pid, price, raw, retailer, retailer_name, store}.
     Pure and DB-free so it can be unit tested.
+
+    Products in :data:`PACKAGE_CATEGORIES` (Morango, Pão de Alho…) are sold per
+    package/bandeja, never by weight: their price is kept per package and their
+    identity is flagged ``is_package`` so the UI shows R$/pacote.
     """
-    # identity -> {retailer -> best kg entry} ; plus unit-only fallbacks
     groups: dict[str, dict[str, Any]] = {}
     unmodeled = 0
 
@@ -77,44 +81,86 @@ def _aggregate(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
             unmodeled += 1
             continue
         price = entry["price"]
-        form = prod.form
-        weight_g = prod.weight_g
-        per_kg = _per_kg(price, form, weight_g)
-        pres = _presentation_label(form, weight_g)
+        product = prod.product
+        acc = groups.setdefault(
+            product,
+            {
+                "product": product,
+                "fruit": prod.fruit,
+                "variety": prod.variety,
+                "pids": set(),
+                "kg": {},
+                "unit": {},
+                "is_package": False,
+            },
+        )
+        acc["pids"].add(int(entry["pid"]))
         row = {
             "slug": entry["retailer"],
             "label": entry["retailer_name"] or entry["retailer"],
             "store": entry["store"],
             "sample": entry["raw"],
             "price": price,
-            "per_kg": per_kg,
-            "presentation": pres,
         }
-        acc = groups.setdefault(
-            prod.product,
-            {
-                "product": prod.product,
-                "fruit": prod.fruit,
-                "variety": prod.variety,
-                "pids": set(),
-                "kg": {},
-                "unit": {},
-            },
-        )
-        acc["pids"].add(int(entry["pid"]))
+        if product in PACKAGE_CATEGORIES:
+            # vendido por pacote/bandeja: compara-se o preço do pacote inteiro
+            acc["is_package"] = True
+            row["per_kg"] = None
+            row["per_pkg"] = price
+            row["presentation"] = "pacote"
+            bucket = acc["unit"]
+            current = bucket.get(row["slug"])
+            if current is None or price < current["price"]:
+                bucket[row["slug"]] = row
+            continue
+
+        per_kg = _per_kg(price, prod.form, prod.weight_g)
+        row["per_kg"] = per_kg
+        row["presentation"] = _presentation_label(prod.form, prod.weight_g)
         bucket = acc["kg"] if per_kg is not None else acc["unit"]
-        cur = bucket.get(row["slug"])
-        if cur is None:
+        current = bucket.get(row["slug"])
+        if current is None:
             bucket[row["slug"]] = row
             continue
         # keep the cheapest per-kg for ranking; for per-unit keep cheapest price
-        if per_kg is not None and per_kg < cur["per_kg"]:
+        if per_kg is not None and per_kg < current["per_kg"]:
             bucket[row["slug"]] = row
-        elif per_kg is None and price < cur["price"]:
+        elif per_kg is None and price < current["price"]:
             bucket[row["slug"]] = row
 
     identities: list[dict[str, Any]] = []
     for acc in groups.values():
+        base = {
+            "product": acc["product"],
+            "fruit": acc["fruit"],
+            "variety": acc["variety"],
+            "products": len(acc["pids"]),
+            "is_package": acc["is_package"],
+        }
+        if acc["is_package"]:
+            pkg_rows = sorted(acc["unit"].values(), key=lambda r: r["price"])
+            best = pkg_rows[0] if pkg_rows else None
+            identities.append(
+                {
+                    **base,
+                    "has_kg": False,
+                    "best": best,
+                    "cheapest": (
+                        {
+                            "price": best["per_pkg"],
+                            "label": best["label"],
+                            "store": best["store"],
+                            "sample": best["sample"],
+                            "presentation": best["presentation"],
+                        }
+                        if best
+                        else None
+                    ),
+                    "retailers": pkg_rows,
+                    "unit_only": [],
+                }
+            )
+            continue
         kg_rows = sorted(
             acc["kg"].values(), key=lambda r: (r["per_kg"] is None, r["per_kg"] or 0.0)
         )
@@ -122,10 +168,7 @@ def _aggregate(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         best = kg_rows[0] if kg_rows else None
         identities.append(
             {
-                "product": acc["product"],
-                "fruit": acc["fruit"],
-                "variety": acc["variety"],
-                "products": len(acc["pids"]),
+                **base,
                 "has_kg": bool(kg_rows),
                 "best": best,
                 "cheapest": (
@@ -146,7 +189,10 @@ def _aggregate(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     def _sort_key(item: dict[str, Any]) -> tuple[int, float]:
         best = item["best"]
-        return (0 if best else 1, best["per_kg"] if best else float("inf"))
+        if best is None:
+            return (2, float("inf"))
+        value = best["per_pkg"] if item["is_package"] else best["per_kg"]
+        return (0 if not item["is_package"] else 1, value or float("inf"))
 
     identities.sort(key=_sort_key)
     return identities, unmodeled

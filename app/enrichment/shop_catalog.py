@@ -188,7 +188,11 @@ def _group_produce(
         name = prod.product if prod is not None else canonical.get(pid)
         if not name:
             continue
-        unit = parse_quantity(raw)
+        if name in PACKAGE_CATEGORIES:
+            # vendido por pacote/bandeja: compara-se o preço do pacote inteiro
+            unit = parse_package_quantity(raw)
+        else:
+            unit = parse_quantity(raw)
         if unit is None or unit.amount_base <= 0:
             continue
         per = price / unit.amount_base

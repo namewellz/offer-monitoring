@@ -51,3 +51,17 @@ def test_unknown_pid_and_no_canonical_dropped():
     canonical = {1: "Maçã"}
     lines = _group_produce([_e(99, 5.0, "produto sem nome de fruta", "x")], canonical)
     assert lines == []
+
+
+def test_morango_is_package_not_kg():
+    canonical = {1: "Morango", 2: "Morango"}
+    entries = [
+        _e(1, 7.99, "Morango Bandeja 250g", "atacadao"),
+        _e(2, 8.9, "Morango Swift 300g Congelado", "tenda"),
+    ]
+    lines = _group_produce(entries, canonical)
+    # any weight/form of Morango is compared as a whole package (R$/pacote)
+    assert [(ln["category"], ln["form"]) for ln in lines] == [("Morango", "pacote")]
+    row = lines[0]
+    assert row["sources"]["atacadao"]["price"] == 7.99
+    assert row["sources"]["tenda"]["price"] == 8.9

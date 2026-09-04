@@ -29,23 +29,28 @@ def render_produce_prices_page(payload: dict[str, Any]) -> str:
 
     rows: list[str] = []
     for item in identities:
+        is_pkg = bool(item.get("is_package"))
+        unit_suffix = "pacote" if is_pkg else "kg"
         best = item["best"]
         if best:
-            best_price = f"{_brl(best['per_kg'])}/kg"
+            best_value = best["per_pkg"] if is_pkg else best["per_kg"]
+            best_price = f"{_brl(best_value)}/{unit_suffix}"
             best_who = RETAILER_LABELS.get(best["label"], best["label"])
         else:
             best_price = "—"
             best_who = ""
         retailer_lines: list[str] = []
         for i, source in enumerate(item["retailers"]):
-            is_best = i == 0 and item["has_kg"]
-            price = _brl(source["per_kg"]) + "/kg"
+            is_best = i == 0 and (item["has_kg"] or is_pkg)
+            value = source["per_pkg"] if is_pkg else source["per_kg"]
+            price = _brl(value) + "/" + unit_suffix
+            pres = source["sample"] if is_pkg else source["presentation"]
             detail = " · ".join(
                 part
                 for part in (
                     RETAILER_LABELS.get(source["label"], source["label"]),
                     source["store"] or "",
-                    source["presentation"] or source["sample"] or "",
+                    pres or source["sample"] or "",
                 )
                 if part
             )
@@ -145,8 +150,10 @@ ul.srcs li.best{{background:#eaf9f1;border-radius:8px;padding:6px 8px;margin-lef
 <h1>Onde comprar cada produto mais barato</h1>
 <p>O produto é a identidade — <b>“Maçã Fuji”</b> — e a forma de venda (kg,
 bandeja, pacote, unidade) não muda o produto: cada oferta é normalizada para
-<b>R$/kg</b> e o melhor preço por rede é mantido. O topo de cada linha diz onde
-comprar aquele produto mais barato.</p></div></section>
+<b>R$/kg</b> e o melhor preço por rede é mantido. <b>Exceção:</b> produtos
+vendidos por pacote/bandeja (ex.: <b>Morango</b>) são comparados em
+<b>R$/pacote</b>. O topo de cada linha diz onde comprar aquele produto mais
+barato.</p></div></section>
 {chips}
 <div class="hint">Ex.: <b>Maçã Fuji</b> reúne “Maçã Fuji Kg”, “Maçã Fuji Bandeja 600g”,
 “Maçã Nacional Fuji 17kg”… e mostra a rede mais barata entre todas as formas de venda.</div>
