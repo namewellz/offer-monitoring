@@ -11,12 +11,20 @@
   migração `0013`): coluna `department` em classificações/categorias, prompts/
   coletores/painéis genéricos, seletor de departamento, tela revisão por dept.
 - ✅ **Fase 1 — Mercearia**: rodada completa persistida — **14.790 aceitos ·
-  4.173 NAO_MERCEARIA** (de 18.963 candidatos), **154 categorias canônicas**
-  semeadas. **Aguardando validação do usuário** antes de seguir:
-  - Revisão: `/catalog/department-review?department=Mercearia`
-  - Categorias (merge/rename): `/catalog/categories?department=Mercearia`
-  - JSON bruto: `outputs/llm_mercearia.json`
-- ⏭️ Próximas (após validar Mercearia): **Bebidas** → **Frios e Laticínios**.
+  4.173 NAO_MERCEARIA** (de 18.963 candidatos), **154 categorias canônicas**.
+  Validada pelo usuário.
+- ✅ **Fase 2 — Bebidas**: rodada completa persistida — **8.236 aceitos ·
+  1.082 NAO_BEBIDAS** (de 9.318 candidatos), **51 categorias canônicas**.
+  JSON: `outputs/llm_bebidas.json`.
+- ✅ **Fase 3 — Frios e Laticínios**: rodada completa persistida —
+  **5.104 aceitos · 1.998 NAO_FRIOS_E_LATICINIOS** (de 7.102 candidatos),
+  **53 categorias canônicas**. JSON: `outputs/llm_frios.json`.
+- 🔎 Revisão/merge disponível por dept (`?department=` em Categorias e
+  `/catalog/department-review`). Invariante garantida: **0 produto aceito em 2
+  departamentos**.
+- ⏭️ Próximas (após validar Bebidas/Frios): demais grandes (Higiene, Bazar,
+  Limpeza) → médios (Doces, Padaria, Hortifruti, Congelados, Pet, Saudáveis,
+  Peixaria) → "Outros" + auditoria.
 
 ## Tamanho da base (distribuição aproximada por departamento — taxonomia atual)
 
