@@ -53,6 +53,7 @@ def list_lists(db: Session) -> list[dict[str, Any]]:
 def add_item(
     db: Session,
     list_id: int,
+    department: str,
     category: str,
     form: str,
     retailer: str | None = None,
@@ -61,6 +62,7 @@ def add_item(
     existing = db.execute(
         select(ShoppingListItem).where(
             ShoppingListItem.list_id == list_id,
+            ShoppingListItem.department == department,
             ShoppingListItem.category == category,
             ShoppingListItem.form == form,
         )
@@ -68,6 +70,7 @@ def add_item(
     if existing is None:
         obj = ShoppingListItem(
             list_id=list_id,
+            department=department,
             category=category,
             form=form,
             retailer_slug=retailer,
@@ -83,6 +86,7 @@ def add_item(
     db.refresh(obj)
     return {
         "id": obj.id,
+        "department": obj.department,
         "category": obj.category,
         "form": obj.form,
         "retailer": obj.retailer_slug,
@@ -110,6 +114,7 @@ def update_item(
     db.refresh(obj)
     return {
         "id": obj.id,
+        "department": obj.department,
         "category": obj.category,
         "form": obj.form,
         "retailer": obj.retailer_slug,
@@ -127,11 +132,12 @@ def items(db: Session, list_id: int) -> list[dict[str, Any]]:
     rows = db.execute(
         select(ShoppingListItem)
         .where(ShoppingListItem.list_id == list_id)
-        .order_by(ShoppingListItem.category, ShoppingListItem.form)
+        .order_by(ShoppingListItem.department, ShoppingListItem.category, ShoppingListItem.form)
     ).scalars().all()
     return [
         {
             "id": row.id,
+            "department": row.department,
             "category": row.category,
             "form": row.form,
             "retailer": row.retailer_slug,

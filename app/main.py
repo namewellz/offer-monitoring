@@ -71,6 +71,7 @@ from app.enrichment.dept_prices import dept_price_rows
 from app.enrichment.dept_prices_dashboard import render_dept_prices_page
 from app.enrichment.review import butcher_review
 from app.enrichment.review_dashboard import render_butcher_review
+from app.enrichment.shop_catalog import catalog_rows
 from app.extraction.ollama_client import OllamaVisionClient
 from app.jobs.queue import (
     catalog_collection_job,
@@ -107,6 +108,12 @@ def _butcher_warm_loop() -> None:
             from app.enrichment.dept_prices import warm_department_prices
 
             warm_department_prices("Mercearia")
+        except Exception:
+            pass
+        try:
+            from app.enrichment.shop_catalog import warm_shop_catalog
+
+            warm_shop_catalog()
         except Exception:
             pass
 
@@ -935,7 +942,7 @@ def categories_normalize(
 # --- Lista de compras ---------------------------------------------------------
 
 def _shopping_rows(db: Session) -> list:
-    return butcher_comparison(db, limit=2000, use_llm=True)["groups"]
+    return catalog_rows(db)
 
 
 @app.get("/shopping-lists", response_class=HTMLResponse, include_in_schema=False)
@@ -983,6 +990,7 @@ def shopping_add_item(
     return shopping_store.add_item(
         db,
         list_id,
+        department=str(payload.get("department") or "Açougue"),
         category=str(payload.get("category") or ""),
         form=str(payload.get("form") or ""),
         retailer=payload.get("retailer"),

@@ -479,14 +479,16 @@ class ShoppingList(_BigIntId, Base):
 
 
 class ShoppingListItem(_BigIntId, Base):
-    """One comparable line (category + form) chosen for a shopping list.
+    """One comparable line (department + category + form/unit) of a list.
 
-    ``retailer_slug`` is the source where the user intends to buy it (defaults to
-    the cheapest). Quantity is in kg (prices are per kg).
+    ``department`` scopes the line (Açougue keeps sale-forms like peça/cubos;
+    other departments use the unit as ``form``: kg, L, un). ``qty`` is in the
+    line's unit; ``retailer_slug`` is the chosen source (default = cheapest).
     """
 
     __tablename__ = "shopping_list_items"
     list_id: Mapped[int] = mapped_column(ForeignKey("shopping_lists.id"), index=True)
+    department: Mapped[str] = mapped_column(String(40), default="Açougue", index=True)
     category: Mapped[str] = mapped_column(String(160))
     form: Mapped[str] = mapped_column(String(40))
     retailer_slug: Mapped[str | None] = mapped_column(String(80))
@@ -495,4 +497,4 @@ class ShoppingListItem(_BigIntId, Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
-    __table_args__ = (UniqueConstraint("list_id", "category", "form"),)
+    __table_args__ = (UniqueConstraint("list_id", "department", "category", "form"),)

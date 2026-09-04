@@ -62,6 +62,21 @@ def _brl(value: float | None) -> str:
     return f"R$ {value:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
 
 
+_UNIT_TITLE = {"kg": "kg", "L": "litro", "un": "unidade"}
+
+
+def _unit_title(unit: str) -> str:
+    return _UNIT_TITLE.get(unit, unit)
+
+
+def _line_title(department: str, label: str, unit: str) -> str:
+    """Rótulo da unidade exibido no item: Açougue mostra a forma de venda;
+    demais departamentos mostram 'por kg/L/unidade'."""
+    if department == "Açougue":
+        return f"{label} · {unit}"
+    return f"por {_unit_title(unit)}"
+
+
 def _page(title: str, inner: str) -> str:
     return f"""<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8">
@@ -123,28 +138,31 @@ def render_builder(
     rows: list[dict[str, Any]],
     list_items: list[dict[str, Any]],
 ) -> str:
-    # compact comparable rows keyed "category|form" with per-source price/store/sample
+    # compact comparable rows keyed "department|category|form/unit" with sources
     row_map: dict[str, dict[str, Any]] = {}
     for row in rows:
+        department = row.get("department") or "Açougue"
+        unit = row.get("unit") or "kg"
         sources = []
         for slug, info in (row.get("sources") or {}).items():
-            if info.get("price_kg") is None:
+            price = info.get("price") if isinstance(info, dict) else None
+            if price is None:
                 continue
             sources.append(
                 {
                     "slug": slug,
-                    "price": float(info["price_kg"]),
-                    "store": info.get("store"),
-                    "sample": info.get("sample"),
+                    "price": float(price),
+                    "store": info.get("store") if isinstance(info, dict) else None,
+                    "sample": info.get("sample") if isinstance(info, dict) else None,
                 }
             )
         if not sources:
             continue
         sources.sort(key=lambda s: s["price"])
-        key = f"{row['category']}|{row['form']}"
+        key = f"{department}|{row['category']}|{row['form']}"
         row_map[key] = {
-            "department": row.get("department") or "Açougue",
-            "unit": row.get("unit") or "kg",
+            "department": department,
+            "unit": unit,
             "label": row.get("label") or row["form"],
             "category": row["category"],
             "form": row["form"],
@@ -157,7 +175,7 @@ def render_builder(
     table = (
         "<table class='sli-table' id='sltable'>"
         "<thead><tr><th>Item (departamento · produto · unidade)</th>"
-        "<th>Origem (onde comprar)</th><th>Qtd (kg)</th><th>Valor</th>"
+        "<th>Origem (onde comprar)</th><th>Qtd</th><th>Valor</th>"
         "<th>Obs</th><th></th></tr></thead>"
         f"<tbody id='items'>{''.join(item_rows)}</tbody></table>"
     )
@@ -165,7 +183,7 @@ def render_builder(
         "<div class='empty' id='empty' style='"
         + ("display:none" if has_items else "")
         + "'>Nenhum item ainda — use a busca abaixo para adicionar.<br>"
-        "Cada item entra com quantidade <b>1</b> (a caixa de kg fica na tela para você ajustar).</div>"
+        "Cada item entra com quantidade <b>1</b> (a caixa fica na tela para você ajustar).</div>"
     )
     inner = (
         _tabs("shopping")
@@ -189,12 +207,13 @@ def render_builder(
 
 
 def _item_row(it: dict[str, Any], row_map: dict[str, Any]) -> str:
-    key = f"{it['category']}|{it['form']}"
+    department = it.get("department") or "Açougue"
+    key = f"{department}|{it['category']}|{it['form']}"
     info = row_map.get(key)
     sources = (info or {}).get("sources") or []
     unit = (info or {}).get("unit") or "kg"
     label = (info or {}).get("label") or it["form"]
-    department = (info or {}).get("department") or "Açougue"
+    dept = (info or {}).get("department") or department
 
     chosen = it["retailer"] if it["retailer"] else None
     detail = ""
@@ -206,6 +225,7 @@ def _item_row(it: dict[str, Any], row_map: dict[str, Any]) -> str:
         select_opts = "".join(
             f"<option value=\"{s['slug']}\"{' selected' if s['slug'] == chosen else ''}>"
             f"{escape(RETAILER_LABELS.get(s['slug'], s['slug']))} — {_brl(s['price'])}"
+            f"/{escape(unit)}"
             "</option>"
             for s in sources
         )
@@ -219,13 +239,15 @@ def _item_row(it: dict[str, Any], row_map: dict[str, Any]) -> str:
     note = escape(it.get("note") or "")
     qty = float(it.get("qty") or 1)
     qty_s = f"{qty:g}"
+    uni_text = escape(_line_title(dept, label, unit))
     return (
         "<tr class='sli' data-id='" + str(it["id"]) + "'>"
-        f"<td><input type='hidden' class='cat' value=\"{escape(it['category'])}\">"
+        f"<td><input type='hidden' class='deptv' value=\"{escape(dept)}\">"
+        f"<input type='hidden' class='cat' value=\"{escape(it['category'])}\">"
         f"<input type='hidden' class='formv' value=\"{escape(it['form'])}\">"
-        f"<span class='dept'>{escape(department)}</span>"
+        f"<span class='dept'>{escape(dept)}</span>"
         f"<div class='sli-item'><h4>{escape(it['category'])}</h4>"
-        f"<span class='uni'>{escape(label)} · {escape(unit)}</span>"
+        f"<span class='uni'>{uni_text}</span>"
         f"<span class='detail'>{detail}</span></div></td>"
         f"<td><select class='src'>{select_opts}</select></td>"
         f"<td><div class='qtywrap'><input class='qty' type='number' min='0.1' step='0.1' "
@@ -243,10 +265,12 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
   const ROWS = @@ROWS@@;
   const LABEL = {'arena-atacado':'Arena','goodbom':'GoodBom','atacadao':'Atacadão','savegnago':'Savegnago','davitta':'Davitta','assai':'Assaí','tenda':'Tenda','sao-vicente':'São Vicente','max-atacadista':'Max'};
   const fmt = v => 'R$ ' + Number(v).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
-  const key = (c,f) => c + '|' + f;
+  const key = (d,c,f) => d + '|' + c + '|' + f;
   const label = s => LABEL[s] || s;
+  const UT = {'kg':'kg','L':'litro','un':'unidade'};
+  const lineTitle = (d,lab,u) => d === 'Açougue' ? (lab + ' · ' + u) : ('por ' + (UT[u] || u));
   const cats = {};
-  for (const k in ROWS) { const [c,f] = k.split('|'); (cats[c] = cats[c] || []).push(f); }
+  for (const k in ROWS) { const [d,c] = k.split('|'); (cats[d + '|' + c] = cats[d + '|' + c] || []).push(k); }
   const catList = Object.keys(cats).sort();
   const search = document.getElementById('search');
   const pick = document.getElementById('pick');
@@ -257,35 +281,40 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
   function renderPick() {
     const t = (search.value || '').trim().toLowerCase();
     if (!t) { pick.style.display = 'none'; pick.innerHTML = ''; hint.textContent = ''; return; }
-    const show = catList.filter(c => {
+    const show = catList.filter(gk => {
+      const [d,c] = gk.split('|');
       if (c.toLowerCase().includes(t)) return true;
-      for (const f of cats[c]) {
-        const info = ROWS[key(c,f)];
+      if (d.toLowerCase().includes(t)) return true;
+      for (const k of cats[gk]) {
+        const info = ROWS[k];
         if (info.label.toLowerCase().includes(t)) return true;
         if (info.sources.some(s => ((s.sample||'') + ' ' + (s.store||'')).toLowerCase().includes(t))) return true;
       }
       return false;
     });
     pick.innerHTML = '';
-    for (const c of show.slice(0, 30)) {
+    for (const gk of show.slice(0, 30)) {
+      const [d,c] = gk.split('|');
+      const first = ROWS[cats[gk][0]];
       const row = document.createElement('div'); row.className = 'pick-row';
       const cat = document.createElement('span'); cat.className = 'cat';
       const dept = document.createElement('span'); dept.className = 'dept';
-      dept.textContent = ROWS[key(c, cats[c][0])].department;
+      dept.textContent = first.department;
       cat.appendChild(document.createTextNode(c)); cat.appendChild(dept);
       const forms = document.createElement('span'); forms.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
-      for (const f of cats[c]) {
-        const info = ROWS[key(c,f)];
+      for (const k of cats[gk]) {
+        const info = ROWS[k];
+        const f = info.form;
         const src = info.sources[0];
         const chip = document.createElement('button'); chip.type = 'button'; chip.className = 'chiplink';
-        chip.textContent = info.label + ' · ' + label(src.slug) + ' ' + fmt(src.price) + ' ' + info.unit;
+        chip.textContent = lineTitle(d, info.label, info.unit) + ' · ' + label(src.slug) + ' ' + fmt(src.price) + '/' + info.unit;
         chip.title = 'Adicionar com quantidade 1 (ajuste na linha)';
         chip.onclick = async () => {
           chip.disabled = true;
           try {
             const r = await fetch('/shopping-lists/' + LIST_ID + '/items', {
               method: 'POST', headers: {'Content-Type':'application/json'},
-              body: JSON.stringify({category:c, form:f, retailer:src.slug, qty:1})
+              body: JSON.stringify({department:d, category:c, form:f, retailer:src.slug, qty:1})
             });
             if (r.ok) { addItem(await r.json()); } else { alert('Falha ao adicionar'); }
           } catch (e) { alert('Falha ao adicionar'); }
@@ -304,16 +333,16 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
 
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   function makeRow(it) {
-    const info = ROWS[key(it.category, it.form)];
+    const dept = it.department || 'Açougue';
+    const info = ROWS[key(dept, it.category, it.form)];
     const sources = info ? info.sources : [];
     const unit = info ? info.unit : 'kg';
     const lab = info ? info.label : it.form;
-    const dept = info ? info.department : 'Açougue';
     let chosen = it.retailer || (sources[0] ? sources[0].slug : '');
     if (sources.length && !sources.some(s => s.slug === chosen)) chosen = sources[0].slug;
     const opts = sources.map(s =>
       '<option value="' + esc(s.slug) + '"' + (s.slug === chosen ? ' selected' : '') + '>' +
-      esc(label(s.slug)) + ' — ' + fmt(s.price) + '</option>'
+      esc(label(s.slug)) + ' — ' + fmt(s.price) + '/' + unit + '</option>'
     ).join('') || '<option value="">—</option>';
     const base = sources.find(s => s.slug === chosen) || sources[0];
     const detParts = [];
@@ -322,11 +351,12 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
     const qty = parseFloat(it.qty) || 1;
     const tr = document.createElement('tr'); tr.className = 'sli'; tr.dataset.id = it.id;
     tr.innerHTML =
-      "<td><input type='hidden' class='cat' value='" + esc(it.category) + "'>" +
+      "<td><input type='hidden' class='deptv' value='" + esc(dept) + "'>" +
+      "<input type='hidden' class='cat' value='" + esc(it.category) + "'>" +
       "<input type='hidden' class='formv' value='" + esc(it.form) + "'>" +
       "<span class='dept'>" + esc(dept) + "</span>" +
       "<div class='sli-item'><h4>" + esc(it.category) + "</h4>" +
-      "<span class='uni'>" + esc(lab) + " · " + esc(unit) + "</span>" +
+      "<span class='uni'>" + esc(lineTitle(dept, lab, unit)) + "</span>" +
       "<span class='detail'>" + detParts.join(' · ') + "</span></div></td>" +
       "<td><select class='src'>" + opts + "</select></td>" +
       "<td><div class='qtywrap'><input class='qty' type='number' min='0.1' step='0.1' value='" + qty + "'><span class='uk'>" + esc(unit) + "</span></div></td>" +
@@ -349,10 +379,11 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
   }
   const tbody = document.getElementById('items');
   function addItem(it) {
-    const k = key(it.category, it.form);
+    const d = it.department || 'Açougue';
+    const k = key(d, it.category, it.form);
     let existing = null;
     for (const tr of tbody.querySelectorAll('tr.sli')) {
-      if (key(tr.querySelector('.cat').value, tr.querySelector('.formv').value) === k) { existing = tr; break; }
+      if (key(tr.querySelector('.deptv').value, tr.querySelector('.cat').value, tr.querySelector('.formv').value) === k) { existing = tr; break; }
     }
     if (existing) {
       existing.querySelector('input.qty').value = parseFloat(it.qty) || 1;
@@ -370,8 +401,9 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
     const rows = [...document.querySelectorAll('#items tr.sli')];
     let total = 0, totalmin = 0;
     for (const tr of rows) {
+      const d = tr.querySelector('.deptv').value;
       const c = tr.querySelector('.cat').value, f = tr.querySelector('.formv').value;
-      const info = ROWS[key(c,f)];
+      const info = ROWS[key(d,c,f)];
       if (!info) continue;
       const sel = tr.querySelector('select.src');
       const src = info.sources.find(s => s.slug === sel.value) || info.sources[0];
