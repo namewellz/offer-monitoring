@@ -17,7 +17,7 @@ from sqlalchemy import select
 from app.catalog.v2.read import current_listings
 from app.classification.canonical import canonical_map
 from app.db.models_v2 import LlmClassification
-from app.enrichment.units import parse_quantity
+from app.enrichment.units import UNIT_CATEGORIES, parse_quantity, parse_unit_quantity
 
 _IDX = {
     "cents": 2,
@@ -101,9 +101,14 @@ def _compute(db: Any, department: str) -> dict[str, Any]:
     unparsed_products = 0
 
     for pid, listing_list in listings_by_pid.items():
+        canon_cat = pid_canon[pid]
         parsed = []  # (retailer, store, per_base, family, raw)
         for retailer, store, price, raw in listing_list:
-            unit = parse_quantity(raw)
+            unit = (
+                parse_unit_quantity(raw)
+                if canon_cat in UNIT_CATEGORIES
+                else parse_quantity(raw)
+            )
             if unit is None or unit.amount_base <= 0:
                 continue
             parsed.append(
@@ -113,7 +118,6 @@ def _compute(db: Any, department: str) -> dict[str, Any]:
             unparsed_products += 1
             continue
         priced_products += 1
-        canon_cat = pid_canon[pid]
         # best store price per retailer, split by unit family
         best_per_retailer: dict[tuple[str, str], dict[str, Any]] = {}
         for retailer, store, per, family, raw in parsed:

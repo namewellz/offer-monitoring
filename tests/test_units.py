@@ -1,4 +1,4 @@
-from app.enrichment.units import parse_quantity
+from app.enrichment.units import UNIT_CATEGORIES, parse_quantity, parse_unit_quantity
 
 
 def _m(name: str) -> float | None:
@@ -54,3 +54,22 @@ def test_no_unit_returns_none():
     assert parse_quantity("Banana") is None
     assert parse_quantity("Tomate kg") is None  # no numeric qty
     assert parse_quantity("") is None
+
+
+def test_unit_categories_includes_pao_de_alho():
+    assert "Pão de Alho" in UNIT_CATEGORIES
+    assert "Pão de Queijo" in UNIT_CATEGORIES
+
+
+def test_parse_unit_quantity_counts():
+    # even with a weight present, unit-category parse counts the pieces
+    p = parse_unit_quantity("Pão de Alho Seara 300g c/ 6 un")
+    assert p.family == "units"
+    assert abs(p.amount_base - 6.0) < 1e-9
+    assert parse_unit_quantity("Pão de Queijo 250g com 12 unidades").amount_base == 12.0
+
+
+def test_parse_unit_quantity_defaults_to_one():
+    p = parse_unit_quantity("Pão de Alho Temperado 320g")
+    assert p.family == "units"
+    assert abs(p.amount_base - 1.0) < 1e-9

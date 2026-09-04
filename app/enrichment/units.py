@@ -123,3 +123,36 @@ def parse_quantity(name: str) -> ParsedUnit | None:
     if amount <= 0:
         return None
     return ParsedUnit(amount, family, display, best.group(0))
+
+
+# Categorias naturalmente vendidas POR UNIDADE (não por peso/volume), mesmo que
+# a embalagem cite um peso (ex.: Pão de Alho 300g c/ 6 un). Para elas o preço
+# comparável é por unidade, não por kg.
+UNIT_CATEGORIES: frozenset[str] = frozenset({
+    "Pão de Alho",
+    "Pão de Queijo",
+})
+
+
+def parse_unit_quantity(name: str) -> ParsedUnit:
+    """Quantidade em UNIDADES para produtos vendidos por unidade.
+
+    Usa a contagem de itens quando o nome traz "c/ N un" (ex.: 'c/ 6 un' -> 6);
+    sem contagem, assume 1 (preço por embalagem/unidade).
+    """
+    if not name:
+        return ParsedUnit(1.0, "units", "un", "")
+    best = 0.0
+    for match in _RE_QTY_UNIT.finditer(name):
+        fam = _UNIT_TOKENS.get(match.group(3).lower().rstrip("."), "units")
+        if fam != "units":
+            continue
+        try:
+            qty = float(match.group(1).replace(",", "."))
+        except (ValueError, TypeError):
+            continue
+        if qty > best:
+            best = qty
+    if best > 0:
+        return ParsedUnit(best, "units", "un", f"{best:g} un")
+    return ParsedUnit(1.0, "units", "un", "1 un")
