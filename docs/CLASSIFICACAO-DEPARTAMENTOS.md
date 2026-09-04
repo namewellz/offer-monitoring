@@ -41,9 +41,18 @@ categorias semeadas; **aguardando validação do usuário**).
   (Padaria/Hortifruti/Peixaria) — o pool da taxonomia incluía itens de outros
   depts e a LLM os rejeitou corretamente; conferir se há rejeitos que deveriam
   ter categoria própria.
-- ⏭️ Próximos passos possíveis: refinar vocabulário por dept (painel), aferição
-  de preço por departamento, e tratamento dos rejeitos que pertencem a outros
-  departamentos (rodada cruzada opcional).
+- ⏭️ Próximos passos possíveis: refinar vocabulário por dept (painel), e
+  tratamento dos rejeitos que pertencem a outros departamentos (rodada cruzada).
+
+## Aferição de preços por departamento (v1 — 2026-09-04)
+
+- `app/enrichment/units.py`: parser de quantidade/unidade (kg/g/L/ml/un, ex.
+  "5kg", "350ml", "4x100g", "c/ 12 un").
+- `app/enrichment/dept_prices.py`: comparativo R$ por unidade por categoria
+  canônica (R$/kg, R$/L, R$/un) entre redes (produtos aceitos pela LLM).
+- Tela: `/catalog/dept-prices?department=<Dept>` (seletor de departamento,
+  busca, melhor preço destacado). Ex.: Mercearia = 315 categorias c/ preço,
+  15.339 produtos precificados, 311 sem unidade. Commit `b392218`.
 
 ## Tamanho da base (distribuição aproximada por departamento — taxonomia atual)
 
