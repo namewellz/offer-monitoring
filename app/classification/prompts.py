@@ -152,6 +152,47 @@ DEPARTMENT_RULES: dict[str, str] = {
         "laticínios e frios resfriados: leite, iogurte, queijos, manteiga, "
         "margarina, requeijão, creme de leite, presuntos e embutidos frios"
     ),
+    "Higiene": (
+        "cuidados pessoais e higiene: sabonetes, shampoos, condicionadores, "
+        "desodorantes, creme dental, escova dental, fraldas, absorventes, papel "
+        "higiênico e cosméticos"
+    ),
+    "Limpeza": (
+        "produtos de limpeza da casa e lavanderia: detergentes, sabão em pó, "
+        "amaciante, água sanitária, desinfetantes, limpadores, esponjas e sacos de lixo"
+    ),
+    "Bazar e Utilidades": (
+        "utilidades domésticas, descartáveis, papelaria, eletroportáteis, "
+        "utensílios de cozinha, automotivo, jardinagem, brinquedos e vestuário básico"
+    ),
+    "Doces e Sobremesas": (
+        "doces e sobremesas: chocolates, bombons, balas, chicletes, paçoca, "
+        "doce de leite, goiabada, gelatina, pudim e sobremesas prontas"
+    ),
+    "Padaria": (
+        "padaria e panificação: pães, bolos, torradas, panetone, biscoitos de "
+        "padaria, pão de forma, pão de queijo e massas frescas de padaria"
+    ),
+    "Hortifruti": (
+        "hortifrúti: frutas, verduras, legumes, tubérculos, hortaliças, temperos "
+        "frescos e ovos de granja (perecíveis vendidos na seção de hortifrúti)"
+    ),
+    "Congelados": (
+        "produtos congelados e ultracongelados: pizzas, lasanhas, sorvetes, "
+        "picolés, nuggets, hambúrgueres congelados, polpas e vegetais congelados"
+    ),
+    "Pet Shop": (
+        "produtos para animais de estimação: rações, petiscos, areia para gatos, "
+        "higiene pet e acessórios para pets"
+    ),
+    "Saudáveis e Orgânicos": (
+        "alimentos saudáveis, funcionais, orgânicos, veganos, sem glúten/lactose, "
+        "grãos, sementes, castanhas, suplementos e snacks saudáveis"
+    ),
+    "Peixaria": (
+        "peixes, frutos do mar e pescados: filés e peixes inteiros, camarão, "
+        "lula, polvo, bacalhau, mariscos e sardinha"
+    ),
 }
 
 
