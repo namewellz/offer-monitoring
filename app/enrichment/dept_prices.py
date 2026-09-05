@@ -19,6 +19,7 @@ from app.classification.canonical import canonical_map
 from app.db.models_v2 import LlmClassification
 from app.enrichment.units import (
     PACKAGE_CATEGORIES,
+    WHOLE_EMBALAGEM_DEPARTMENTS,
     parse_package_quantity,
     parse_quantity,
 )
@@ -31,8 +32,20 @@ _IDX = {
     "store": 15,
 }
 
-_FAMILY_BASE = {"mass": "kg", "vol": "L", "units": "un", "package": "pacote"}
-_FAMILY_ORDER = {"mass": 0, "vol": 1, "units": 2, "package": 3}
+_FAMILY_BASE = {
+    "mass": "kg",
+    "vol": "L",
+    "units": "un",
+    "package": "pacote",
+    "embalagem": "embalagem",
+}
+_FAMILY_ORDER = {
+    "mass": 0,
+    "vol": 1,
+    "units": 2,
+    "package": 3,
+    "embalagem": 4,
+}
 
 # TTL cache, same philosophy as butcher comparison (warmed by api startup thread).
 _CACHE: dict[str, Any] = {"key": None, "payload": None, "ts": 0.0}
@@ -44,11 +57,7 @@ def dept_price_rows(db: Any, department: str) -> dict[str, Any]:
     import time
 
     cache_key = f"{department}|llm"
-    if (
-        _CACHE["key"] != cache_key
-        or _CACHE["payload"] is None
-        or time.time() - _CACHE["ts"] > _TTL
-    ):
+    if _CACHE["key"] != cache_key or _CACHE["payload"] is None or time.time() - _CACHE["ts"] > _TTL:
         payload = _compute(db, department)
         _CACHE["key"] = cache_key
         _CACHE["payload"] = payload
@@ -107,17 +116,23 @@ def _compute(db: Any, department: str) -> dict[str, Any]:
     for pid, listing_list in listings_by_pid.items():
         canon_cat = pid_canon[pid]
         parsed = []  # (retailer, store, per_base, family, raw)
+        whole = department in WHOLE_EMBALAGEM_DEPARTMENTS
         for retailer, store, price, raw in listing_list:
-            unit = (
-                parse_package_quantity(raw)
-                if canon_cat in PACKAGE_CATEGORIES
-                else parse_quantity(raw)
-            )
-            if unit is None or unit.amount_base <= 0:
-                continue
-            parsed.append(
-                (retailer, store, price / unit.amount_base, unit.family, raw)
-            )
+            if whole:
+                # convenção: preço da embalagem anunciada (nunca R$/kg ou R$/L)
+                per = price
+                family = "embalagem"
+            else:
+                unit = (
+                    parse_package_quantity(raw)
+                    if canon_cat in PACKAGE_CATEGORIES
+                    else parse_quantity(raw)
+                )
+                if unit is None or unit.amount_base <= 0:
+                    continue
+                per = price / unit.amount_base
+                family = unit.family
+            parsed.append((retailer, store, per, family, raw))
         if not parsed:
             unparsed_products += 1
             continue
@@ -129,7 +144,9 @@ def _compute(db: Any, department: str) -> dict[str, Any]:
             current = best_per_retailer.get(key)
             if current is None or per < current["per"]:
                 best_per_retailer[key] = {
-                    "per": per, "store": store, "sample": raw,
+                    "per": per,
+                    "store": store,
+                    "sample": raw,
                 }
         for (retailer, family), info in best_per_retailer.items():
             gkey = (canon_cat, family)

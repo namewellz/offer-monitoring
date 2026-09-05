@@ -65,8 +65,21 @@ def _brl(value: float | None) -> str:
     return f"R$ {value:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
 
 
-_UNIT_TITLE = {"kg": "kg", "L": "litro", "un": "unidade", "pacote": "pacote"}
-_TIPO_TITLE = {"kg": "Kilo", "L": "Litro", "un": "Unidade", "pacote": "Pacote", "caixa": "Caixa"}
+_UNIT_TITLE = {
+    "kg": "kg",
+    "L": "litro",
+    "un": "unidade",
+    "pacote": "pacote",
+    "embalagem": "embalagem",
+}
+_TIPO_TITLE = {
+    "kg": "Kilo",
+    "L": "Litro",
+    "un": "Unidade",
+    "pacote": "Pacote",
+    "caixa": "Caixa",
+    "embalagem": "Embalagem",
+}
 
 
 def _unit_title(unit: str) -> str:
@@ -79,7 +92,7 @@ def _forms_for(row_map: dict[str, Any], department: str, category: str) -> list[
     forms: list[str] = []
     for row_key in row_map:
         if row_key.startswith(prefix):
-            form = row_key[len(prefix):]
+            form = row_key[len(prefix) :]
             if form not in forms:
                 forms.append(form)
     return forms
@@ -135,7 +148,7 @@ def _tabs(active: str) -> str:
         ("shopping", "/shopping-lists", "Lista"),
     ]
     links = "".join(
-        f'<a href="{href}"{" class=\"active\"" if key == active else ""}>{label}</a>'
+        f'<a href="{href}"{' class="active"' if key == active else ""}>{label}</a>'
         for key, href, label in items
     )
     return f'<nav class="view-tabs" aria-label="Visões">{links}</nav>'
@@ -158,8 +171,7 @@ def render_index(lists: list[dict[str, Any]]) -> str:
         + "<section class='hero'><div><span class='eyebrow'>Lista de compras</span>"
         "<h1>Minhas listas</h1>"
         "<p>Cada item começa na fonte mais barata; você pode trocar a fonte item a item.</p>"
-        "</div></section>"
-        + "<div class='tools'><form method='post' action='/shopping-lists' "
+        "</div></section>" + "<div class='tools'><form method='post' action='/shopping-lists' "
         "style='display:flex;gap:8px;flex:1;flex-wrap:wrap'>"
         "<input style='flex:1;min-width:220px;padding:10px 12px;border:1px solid var(--line);"
         "border-radius:10px' name='name' required placeholder='Nome da nova lista…'>"
@@ -209,12 +221,8 @@ def render_builder(
     item_rows = [_item_row(it, row_map) for it in list_items]
     payload_rows = json.dumps(row_map, ensure_ascii=False)
     has_items = bool(item_rows)
-    dept_opts = (
-        "<option value='all'>Todos os departamentos</option>"
-        + "".join(
-            f"<option value=\"{escape(d)}\">{escape(d)}</option>"
-            for d in CANONICAL_DEPARTMENTS
-        )
+    dept_opts = "<option value='all'>Todos os departamentos</option>" + "".join(
+        f'<option value="{escape(d)}">{escape(d)}</option>' for d in CANONICAL_DEPARTMENTS
     )
     table = (
         "<table class='sli-table' id='sltable'>"
@@ -240,14 +248,11 @@ def render_builder(
         + empty
         + "<div class='totalbar'><span>Sua lista (fontes escolhidas)</span>"
         "<b id='total'>R$ 0,00</b><span class='muted'>menor preço possível: "
-        "<b id='totalmin'>R$ 0,00</b></span></div>"
-        + "<div class='addsec'><h2>Adicionar itens</h2>"
+        "<b id='totalmin'>R$ 0,00</b></span></div>" + "<div class='addsec'><h2>Adicionar itens</h2>"
         "<div class='tools'>"
         "<select id='deptfilter' title='Filtrar por departamento' "
         "style='padding:8px 10px;border:1px solid var(--line);border-radius:9px;"
-        "font-size:13px;background:#fff;max-width:220px'>"
-        + dept_opts
-        + "</select>"
+        "font-size:13px;background:#fff;max-width:220px'>" + dept_opts + "</select>"
         "<div class='review-search'><input id='search' type='search' "
         "placeholder='Buscar produto…'></div>"
         "<span class='hint' id='hint'></span></div>"
@@ -273,7 +278,7 @@ def _item_row(it: dict[str, Any], row_map: dict[str, Any]) -> str:
         if chosen not in [s["slug"] for s in sources]:
             chosen = sources[0]["slug"]
         select_opts = "".join(
-            f"<option value=\"{s['slug']}\"{' selected' if s['slug'] == chosen else ''}>"
+            f'<option value="{s["slug"]}"{" selected" if s["slug"] == chosen else ""}>'
             f"{escape(RETAILER_LABELS.get(s['slug'], s['slug']))} — {_brl(s['price'])}"
             f"/{escape(unit)}"
             "</option>"
@@ -317,9 +322,9 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
   const fmt = v => 'R$ ' + Number(v).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
   const key = (d,c,f) => d + '|' + c + '|' + f;
   const label = s => LABEL[s] || s;
-  const UT = {'kg':'kg','L':'litro','un':'unidade','pacote':'pacote'};
+  const UT = {'kg':'kg','L':'litro','un':'unidade','pacote':'pacote','embalagem':'embalagem'};
   const lineTitle = (d,lab,u) => d === 'Açougue' ? (lab + ' · ' + u) : ('por ' + (UT[u] || u));
-  const TP = {'kg':'Kilo','L':'Litro','un':'Unidade','pacote':'Pacote','caixa':'Caixa'};
+  const TP = {'kg':'Kilo','L':'Litro','un':'Unidade','pacote':'Pacote','caixa':'Caixa','embalagem':'Embalagem'};
   const fold = s => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
   const cats = {};
   for (const k in ROWS) { const [d,c] = k.split('|'); (cats[d + '|' + c] = cats[d + '|' + c] || []).push(k); }
@@ -582,6 +587,4 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
   renderPick();
 })();
 </script>"""
-    return (
-        template.replace("@@LIST_ID@@", str(list_id)).replace("@@ROWS@@", rows_json)
-    )
+    return template.replace("@@LIST_ID@@", str(list_id)).replace("@@ROWS@@", rows_json)

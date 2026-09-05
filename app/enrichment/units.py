@@ -159,6 +159,28 @@ PACKAGE_CATEGORIES: frozenset[str] = frozenset({
     "Uva",
 })
 
+# Convenção (2026-09-05): fora do Açougue e do Hortifrúti, o preço comparável é o
+# da EMBALAGEM anunciada — nunca R$/kg ou R$/L (não dividimos pelo conteúdo;
+# o usuário sinaliza os raros casos que deveriam continuar por kg).
+# - Açougue continua por kg (peça/corte).
+# - Hortifrúti mantém regras próprias: kg para ofertas a granel e pacote para
+#   Morango/Uva/etc (PACKAGE_CATEGORIES).
+WHOLE_EMBALAGEM_DEPARTMENTS: frozenset[str] = frozenset({
+    "Mercearia",
+    "Bebidas",
+    "Padaria",
+    "Frios e Laticínios",
+    "Higiene",
+    "Limpeza",
+    "Congelados",
+    "Doces e Sobremesas",
+    "Bazar e Utilidades",
+    "Pet Shop",
+    "Saudáveis e Orgânicos",
+    "Peixaria",
+    "Outros",
+})
+
 
 def parse_package_quantity(name: str) -> ParsedUnit:
     """Um pacote/embalagem = 1 unidade de comparação (preço do pacote)."""

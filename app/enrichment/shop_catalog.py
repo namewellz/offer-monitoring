@@ -23,12 +23,19 @@ from app.enrichment.butcher import butcher_comparison
 from app.enrichment.produce import normalize_produce
 from app.enrichment.units import (
     PACKAGE_CATEGORIES,
+    WHOLE_EMBALAGEM_DEPARTMENTS,
     parse_package_quantity,
     parse_quantity,
 )
 
 _IDX = {"cents": 2, "pid": 7, "raw": 9, "retailer": 14, "store": 15}
-_FAMILY_BASE = {"mass": "kg", "vol": "L", "units": "un", "package": "pacote"}
+_FAMILY_BASE = {
+    "mass": "kg",
+    "vol": "L",
+    "units": "un",
+    "package": "pacote",
+    "embalagem": "embalagem",
+}
 
 _CACHE: dict[str, Any] = {"ts": 0.0, "payload": None}
 _TTL = 300
@@ -113,16 +120,22 @@ def _generic_lines(db: Any) -> list[dict[str, Any]]:
     for pid, listing_list in listings.items():
         dept, canonical = pid_info[pid]
         per_retailer: dict[tuple[str, str], dict[str, Any]] = {}
+        whole = dept in WHOLE_EMBALAGEM_DEPARTMENTS
         for retailer, store, price, raw in listing_list:
-            unit = (
-                parse_package_quantity(raw)
-                if canonical in PACKAGE_CATEGORIES
-                else parse_quantity(raw)
-            )
-            if unit is None or unit.amount_base <= 0:
-                continue
-            key = (retailer, unit.family)
-            per = price / unit.amount_base
+            if whole:
+                # convenção: preço da embalagem anunciada (nunca R$/kg ou R$/L)
+                key = (retailer, "embalagem")
+                per = price
+            else:
+                unit = (
+                    parse_package_quantity(raw)
+                    if canonical in PACKAGE_CATEGORIES
+                    else parse_quantity(raw)
+                )
+                if unit is None or unit.amount_base <= 0:
+                    continue
+                key = (retailer, unit.family)
+                per = price / unit.amount_base
             current = per_retailer.get(key)
             if current is None or per < current["price"]:
                 per_retailer[key] = {
