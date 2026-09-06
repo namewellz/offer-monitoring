@@ -51,6 +51,33 @@ def enqueue_catalog_collection(retailer_slug: str) -> str:
         return job.id
 
 
+def enqueue_classify_new(retailer_slug: str | None = None) -> str:
+    """Agenda a classificação incremental dos produtos novos (uma por vez)."""
+    queue = get_queue()
+    connection = queue.connection
+    key = f"classify:queued:new:{retailer_slug or 'all'}"
+    with connection.lock(f"{key}:lock", timeout=10, blocking_timeout=3):
+        existing_id = connection.get(key)
+        if existing_id:
+            existing_id = existing_id.decode() if isinstance(existing_id, bytes) else existing_id
+            existing = queue.fetch_job(existing_id)
+            if existing is not None:
+                status = existing.get_status(refresh=True)
+                status = status.value if hasattr(status, "value") else str(status)
+                if status in {"queued", "started", "deferred", "scheduled"}:
+                    return existing.id
+            connection.delete(key)
+        job = queue.enqueue(
+            "app.jobs.tasks.run_classify_new",
+            retailer_slug,
+            job_timeout="60m",
+            result_ttl=86400,
+            failure_ttl=86400,
+        )
+        connection.set(key, job.id, ex=7200)
+        return job.id
+
+
 def _catalog_job_error(exc_info: str | None) -> str | None:
     if not exc_info:
         return None

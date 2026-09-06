@@ -54,6 +54,41 @@ def schedule_catalog_collections() -> None:
     enqueue_catalogs()
 
 
+def enqueue_sources_without_collection() -> None:
+    """Nova fonte já inicia a coleta (não espera o cron).
+
+    Redes registradas que ainda não têm nenhuma coleta no modelo v2 são
+    enfileiradas imediatamente quando o scheduler sobe — o caso típico de uma
+    fonte recém-adicionada no código/deploy.
+    """
+    from app.catalog.v2.registry import CATALOG_SOURCES
+    from app.db.models_v2 import (
+        CatalogSource,
+        CollectionRun,
+        CollectionTarget,
+        Retailer,
+    )
+
+    with SessionLocal() as db:
+        have = set(
+            db.execute(
+                select(Retailer.slug)
+                .join(CatalogSource, CatalogSource.retailer_id == Retailer.id)
+                .join(CollectionTarget, CollectionTarget.source_id == CatalogSource.id)
+                .join(CollectionRun, CollectionRun.target_id == CollectionTarget.id)
+            )
+            .scalars()
+            .all()
+        )
+    for slug in CATALOG_SOURCES:
+        if slug in have:
+            continue
+        try:
+            enqueue_catalog_collection(slug)
+        except Exception:
+            pass
+
+
 def add_cron_job(scheduler, function, cron: str, **kwargs) -> None:
     minute, hour, day, month, weekday = cron.split()
     scheduler.add_job(
@@ -90,4 +125,6 @@ if __name__ == "__main__":
             coalesce=True,
             max_instances=1,
         )
+        # fontes recém-adicionadas coletam já no boot (não esperam o cron)
+        enqueue_sources_without_collection()
     scheduler.start()

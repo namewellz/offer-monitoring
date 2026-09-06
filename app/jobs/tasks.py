@@ -90,10 +90,33 @@ def run_catalog_collection(retailer_slug: str) -> dict | None:
         write_catalog(catalog, Path(output), prefix=prefix)
         with SessionLocal() as db:
             run = persist(db, catalog)
-            return {
-                "run_id": str(run.id),
-                "status": run.status.value,
-                "errors": catalog.get("collection_errors", []),
-            }
+            outcome = run.status.value
+        # pós-coleta: agenda a classificação incremental dos produtos novos
+        if outcome in ("SUCCESS", "PARTIAL_SUCCESS"):
+            from app.jobs.queue import enqueue_classify_new
+
+            try:
+                enqueue_classify_new(retailer_slug=retailer_slug)
+            except Exception:
+                pass
+        return {
+            "run_id": str(run.id),
+            "status": outcome,
+            "errors": catalog.get("collection_errors", []),
+        }
+    finally:
+        lock.release()
+
+
+def run_classify_new(retailer_slug: str | None = None, max_items: int = 800) -> dict | None:
+    """Classifica automaticamente produtos nunca classificados (DeepSeek)."""
+    lock = _locked(f"classify:new:{retailer_slug or 'all'}")
+    if not lock.acquire(blocking=False):
+        return None
+    try:
+        from app.classification.automation import classify_new_products
+
+        with SessionLocal() as db:
+            return classify_new_products(db, retailer=retailer_slug, max_items=max_items)
     finally:
         lock.release()
