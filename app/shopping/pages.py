@@ -56,6 +56,15 @@ td.price .pkg{display:block;font-size:10.5px;color:var(--muted);font-weight:600;
 .listcard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .listcard a{color:var(--green);font-weight:700;text-decoration:none}
 .hint{font-size:12px;color:var(--muted)}
+.viewseg{display:flex;gap:8px;margin:14px 0 4px}
+.viewseg button{border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:99px;padding:7px 16px;font-size:13px;font-weight:700;cursor:pointer;transition:background .12s,color .12s}
+.viewseg button.on{background:var(--green);color:#fff;border-color:var(--green)}
+.mgroup{margin:12px 0;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--shadow)}
+.mgroup-head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px;background:#f2f8f5;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.mgroup-head b{font-size:16px;color:var(--green)}
+.mgroup-head .mcount{color:var(--muted);font-size:12px;font-weight:600;margin-left:6px}
+.mgroup-head .msub{font-size:16px;font-weight:800;color:var(--green)}
+.mgroup .sli-table{border:0;border-radius:0;box-shadow:none;margin:0}
 @media(max-width:720px){.sli-table,.sli-table tbody,.sli-table tr,.sli-table td{display:block}.sli-table thead{display:none}.sli-table td{border-bottom:1px solid #eef2f0;padding:8px 12px}}
 """
 
@@ -260,6 +269,12 @@ def render_builder(
         + "'>Nenhum item ainda — use a busca abaixo para adicionar.<br>"
         "Cada item entra com quantidade <b>1</b> (a caixa fica na tela para você ajustar).</div>"
     )
+    viewseg = (
+        "<div class='viewseg'>"
+        "<button type='button' id='viewFlat' class='on'>Lista completa</button>"
+        "<button type='button' id='viewMarket'>Por mercado</button>"
+        "</div>"
+    )
     inner = (
         _tabs("shopping")
         + "<section class='hero'><div><span class='eyebrow'>Lista de compras</span>"
@@ -267,8 +282,10 @@ def render_builder(
         "<p>Fonte padrão: <b>mais barata</b>. Troque a origem item a item e ajuste a "
         "quantidade direto na linha.</p></div>"
         "<a class='page-button' href='/shopping-lists'>← listas</a></section>"
+        + viewseg
         + table
         + empty
+        + "<div id='grouped'></div>"
         + "<div class='totalbar'><span>Sua lista (fontes escolhidas)</span>"
         "<b id='total'>R$ 0,00</b><span class='muted'>menor preço possível: "
         "<b id='totalmin'>R$ 0,00</b></span></div>" + "<div class='addsec'><h2>Adicionar itens</h2>"
@@ -359,6 +376,10 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
   const hint = document.getElementById('hint');
   const empty = document.getElementById('empty');
   const tableEl = document.getElementById('sltable');
+  const groupedEl = document.getElementById('grouped');
+  const btnFlat = document.getElementById('viewFlat');
+  const btnMarket = document.getElementById('viewMarket');
+  let marketView = false;
 
   function renderPick() {
     const t = fold(search.value.trim());
@@ -513,7 +534,7 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
         compute();
       } catch (e) { this.disabled = false; }
     });
-    tr.querySelector('select.src').addEventListener('change', function(){ persist(id, {retailer: this.value}); compute(); });
+    tr.querySelector('select.src').addEventListener('change', function(){ persist(id, {retailer: this.value}); if (marketView) renderGrouped(); compute(); });
     tr.querySelector('input.qty').addEventListener('input', function(){
       const s = (this.value || '').trim();
       if (s === '') return;                      // permite apagar para digitar
@@ -530,15 +551,58 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
       if (!confirm('Remover item?')) return;
       this.disabled = true;
       const r = await fetch('/shopping-lists/items/' + id + '/delete', {method:'POST'});
-      if (r.ok) { tr.remove(); compute(); } else { this.disabled = false; alert('Falha ao remover'); }
+      if (r.ok) { tr.remove(); if (marketView) renderGrouped(); compute(); } else { this.disabled = false; alert('Falha ao remover'); }
     });
   }
   const tbody = document.getElementById('items');
+  function setView(v) {
+    marketView = v === 'market';
+    if (btnFlat) btnFlat.classList.toggle('on', !marketView);
+    if (btnMarket) btnMarket.classList.toggle('on', marketView);
+    if (!marketView) {
+      for (const tr of [...groupedEl.querySelectorAll('tr.sli')]) tbody.appendChild(tr);
+      groupedEl.innerHTML = '';
+      groupedEl.style.display = 'none';
+    } else {
+      renderGrouped();
+    }
+    compute();
+  }
+  function renderGrouped() {
+    if (!marketView) return;
+    for (const tr of [...groupedEl.querySelectorAll('tr.sli')]) tbody.appendChild(tr);
+    groupedEl.innerHTML = '';
+    const rows = [...document.querySelectorAll('#items tr.sli')];
+    const groups = {};
+    for (const tr of rows) {
+      const sel = tr.querySelector('select.src');
+      const slug = sel ? (sel.value || '_none') : '_none';
+      (groups[slug] = groups[slug] || []).push(tr);
+    }
+    const slugs = Object.keys(groups).sort((a, b) => {
+      if (a === '_none') return 1;
+      if (b === '_none') return -1;
+      return label(a).localeCompare(label(b), 'pt-BR');
+    });
+    for (const slug of slugs) {
+      const sec = document.createElement('section'); sec.className = 'mgroup'; sec.dataset.slug = slug;
+      const head = document.createElement('div'); head.className = 'mgroup-head';
+      const name = (slug === '_none' || slug === '') ? 'Sem mercado' : label(slug);
+      head.innerHTML = '<div><b>' + esc(name) + '</b> <span class="mcount"></span></div><span class="msub">R$ 0,00</span>';
+      const tbl = document.createElement('table'); tbl.className = 'sli-table';
+      const tb = document.createElement('tbody');
+      for (const tr of groups[slug]) tb.appendChild(tr);
+      tbl.appendChild(tb); sec.appendChild(head); sec.appendChild(tbl);
+      groupedEl.appendChild(sec);
+    }
+    groupedEl.style.display = rows.length ? '' : 'none';
+    if (tableEl) tableEl.style.display = 'none';
+  }
   function addItem(it) {
     const d = it.department || 'Açougue';
     const k = key(d, it.category, it.form);
     let existing = null;
-    for (const tr of tbody.querySelectorAll('tr.sli')) {
+    for (const tr of document.querySelectorAll('#items tr.sli, #grouped tr.sli')) {
       const td = tr.querySelector('.deptv').value;
       const tc = tr.querySelector('.cat').value;
       const tf = tr.querySelector('.formv').value;
@@ -564,10 +628,11 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
       bindRow(tr);
     }
     search.value = ''; renderPick();
+    if (marketView) renderGrouped();
     compute();
   }
   function compute() {
-    const rows = [...document.querySelectorAll('#items tr.sli')];
+    const rows = [...document.querySelectorAll('#items tr.sli, #grouped tr.sli')];
     let total = 0, totalmin = 0;
     for (const tr of rows) {
       const d = tr.querySelector('.deptv').value;
@@ -597,7 +662,29 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
     document.getElementById('total').textContent = fmt(total);
     document.getElementById('totalmin').textContent = fmt(totalmin);
     if (empty) empty.style.display = rows.length ? 'none' : 'block';
-    if (tableEl) tableEl.style.display = rows.length ? '' : 'none';
+    if (!marketView) {
+      if (tableEl) tableEl.style.display = rows.length ? '' : 'none';
+      if (groupedEl) groupedEl.style.display = 'none';
+    } else {
+      if (tableEl) tableEl.style.display = 'none';
+      if (groupedEl) groupedEl.style.display = rows.length ? '' : 'none';
+      const subs = {};
+      for (const tr of rows) {
+        const d = tr.querySelector('.deptv').value, c = tr.querySelector('.cat').value, f = tr.querySelector('.formv').value;
+        const info = ROWS[key(d, c, f)]; if (!info) continue;
+        const sel = tr.querySelector('select.src');
+        const src = info.sources.find(s => s.slug === sel.value) || info.sources[0];
+        const qty = parseFloat(tr.querySelector('input.qty').value) || 1;
+        const slug = sel ? (sel.value || '_none') : '_none';
+        subs[slug] = (subs[slug] || 0) + (src ? src.price : 0) * qty;
+      }
+      for (const sec of groupedEl.querySelectorAll('.mgroup')) {
+        const slug = sec.dataset.slug;
+        const n = sec.querySelectorAll('tr.sli').length;
+        const cnt = sec.querySelector('.mcount'); if (cnt) cnt.textContent = n + (n === 1 ? ' item' : ' itens');
+        const sub = sec.querySelector('.msub'); if (sub) sub.textContent = fmt(subs[slug] || 0);
+      }
+    }
   }
   async function persist(id, payload) {
     try {
@@ -607,6 +694,10 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
     } catch (e) {}
   }
   for (const tr of [...document.querySelectorAll('#items tr.sli')]) bindRow(tr);
+  if (btnFlat && btnMarket && groupedEl) {
+    btnFlat.addEventListener('click', () => setView('flat'));
+    btnMarket.addEventListener('click', () => setView('market'));
+  }
   compute();
   renderPick();
 })();
