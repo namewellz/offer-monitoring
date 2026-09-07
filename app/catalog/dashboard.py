@@ -17,6 +17,9 @@ RETAILERS = (
     ("tenda", "Tenda Atacado"),
     ("sao-vicente", "São Vicente"),
     ("max-atacadista", "Max Atacadista"),
+    ("dalben", "Dalben"),
+    ("spani", "Spani"),
+    ("pague-menos", "Pague Menos"),
 )
 
 
@@ -185,7 +188,8 @@ def render_catalog_dashboard(
 <meta name="theme-color" content="#145c42"><title>Monitor de preços</title>
 <link rel="stylesheet" href="/static/catalog.css?v=20260829-4"></head>
 <body><header class="topbar"><div class="shell brandbar">
-<a class="brand" href="/catalog"><span class="brand-mark">OM</span><span>Offer Monitor</span></a>
+<a class="brand" href="/"><span class="brand-mark">OM</span><span>Offer Monitor</span></a>
+<nav class="topnav"><a href="/">Início</a><a href="/shopping-lists">Lista de compras</a><a href="/catalog/updates">Atualizações</a></nav>
 <span class="live"><i></i> Monitoramento ativo</span></div></header>
 <main class="shell">
 <section class="hero"><div><span class="eyebrow">Inteligência de preços</span>

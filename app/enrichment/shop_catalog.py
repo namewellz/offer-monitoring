@@ -20,6 +20,7 @@ from sqlalchemy import select
 from app.catalog.v2.read import current_listings
 from app.db.models_v2 import LlmCategoryLabel, LlmClassification
 from app.enrichment.butcher import butcher_comparison
+from app.enrichment.canonical_name import _fold, canonical_name
 from app.enrichment.produce import normalize_produce
 from app.enrichment.units import (
     PACKAGE_CATEGORIES,
@@ -28,7 +29,7 @@ from app.enrichment.units import (
     parse_quantity,
 )
 
-_IDX = {"cents": 2, "pid": 7, "raw": 9, "retailer": 14, "store": 15}
+_IDX = {"cents": 2, "pid": 7, "raw": 9, "brand": 10, "raw_categories": 12, "retailer": 14, "store": 15}
 _FAMILY_BASE = {
     "mass": "kg",
     "vol": "L",
@@ -39,6 +40,49 @@ _FAMILY_BASE = {
 
 _CACHE: dict[str, Any] = {"ts": 0.0, "payload": None}
 _TTL = 300
+
+
+def _identity_from(canonical: Any, raw: str, fallback: str) -> tuple[str, bool, bool]:
+    is_package = (
+        canonical.generic in PACKAGE_CATEGORIES or canonical.specific in PACKAGE_CATEGORIES
+    )
+    if canonical.class_name is None:
+        return (fallback or canonical.specific or raw).strip(), is_package, False
+    if canonical.brand_relevant and not canonical.brand:
+        # marca não reconhecida: não inventar; mantém a classe (+ tamanho).
+        if canonical.size:
+            return f"{canonical.generic} {canonical.size}", is_package, True
+        return canonical.generic, is_package, True
+    return (canonical.specific or canonical.generic).strip(), is_package, True
+
+
+def _generic_identity(
+    raw: str,
+    dept: str,
+    fallback: str,
+    brand: str | None = None,
+    categories: list[str] | None = None,
+) -> tuple[str, bool, bool]:
+    """Deterministic canonical identity for one generic-department product.
+
+    Returns ``(identity, is_package, canonical)`` where ``canonical`` is True
+    when the deterministic normalizer produced the identity (vs the LLM
+    fallback). ``identity`` is the specific canonical (brand + size when the
+    class is brand-relevant, e.g. "Cerveja Heineken 350ml", "Pão de Forma
+    Pullman 500g") so the same branded item is compared across retailers. The
+    product's own brand (when the source provides it) is always used; when the
+    raw name/categories don't carry the class, the LLM canonical line is tried
+    as a second source of class+brand before giving up.
+    """
+    canonical = canonical_name(raw, brand=brand, department=dept, categories=categories)
+    identity, is_package, deterministic = _identity_from(canonical, raw, fallback)
+    if not deterministic and fallback:
+        second = canonical_name(fallback, brand=brand, department=dept, categories=categories)
+        if second.class_name is not None:
+            identity2, package2, det2 = _identity_from(second, raw, fallback)
+            if det2:
+                return identity2, package2 or is_package, True
+    return identity, is_package, deterministic
 
 
 def _as_dict_sources(group: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -113,15 +157,28 @@ def _generic_lines(db: Any) -> list[dict[str, Any]]:
         if cents is None or cents <= 0:
             continue
         listings[pid].append(
-            (row[_IDX["retailer"]], row[_IDX["store"]], cents / 100.0, row[_IDX["raw"]] or "")
+            (
+                row[_IDX["retailer"]],
+                row[_IDX["store"]],
+                cents / 100.0,
+                row[_IDX["raw"]] or "",
+                row[_IDX["brand"]] or None,
+                row[_IDX["raw_categories"]] or [],
+            )
         )
 
     groups: dict[tuple[str, str, str], dict[str, Any]] = {}
+    displays: dict[tuple[str, str, str], tuple[str, bool]] = {}
     for pid, listing_list in listings.items():
-        dept, canonical = pid_info[pid]
+        dept, llm_canonical = pid_info[pid]
+        brand_rep = listing_list[0][4]
+        categories_rep = listing_list[0][5]
+        identity, is_package, deterministic = _generic_identity(
+            listing_list[0][3], dept, llm_canonical, brand_rep, categories_rep
+        )
         per_retailer: dict[tuple[str, str], dict[str, Any]] = {}
         whole = dept in WHOLE_EMBALAGEM_DEPARTMENTS
-        for retailer, store, price, raw in listing_list:
+        for retailer, store, price, raw, _brand, _categories in listing_list:
             if whole:
                 # convenção: preço da embalagem anunciada (nunca R$/kg ou R$/L)
                 key = (retailer, "embalagem")
@@ -129,7 +186,7 @@ def _generic_lines(db: Any) -> list[dict[str, Any]]:
             else:
                 unit = (
                     parse_package_quantity(raw)
-                    if canonical in PACKAGE_CATEGORIES
+                    if is_package
                     else parse_quantity(raw)
                 )
                 if unit is None or unit.amount_base <= 0:
@@ -144,15 +201,21 @@ def _generic_lines(db: Any) -> list[dict[str, Any]]:
                     "sample": raw,
                 }
         for (retailer, family), info in per_retailer.items():
-            gkey = (dept, canonical, family)
+            fkey = (dept, _fold(identity), family)
             group = groups.setdefault(
-                gkey,
+                fkey,
                 {
                     "products": set(),
                     "sources": {},
                 },
             )
             group["products"].add(pid)
+            previous = displays.get(fkey)
+            if previous is None:
+                displays[fkey] = (identity, deterministic)
+            elif deterministic and not previous[1]:
+                # prefere a identidade determinística (caixa/acentos limpos)
+                displays[fkey] = (identity, deterministic)
             acc = group["sources"].setdefault(
                 retailer, {"price": None, "store": None, "sample": None}
             )
@@ -162,7 +225,8 @@ def _generic_lines(db: Any) -> list[dict[str, Any]]:
                 acc["sample"] = info["sample"]
 
     lines = []
-    for (dept, canonical, family), group in groups.items():
+    for (dept, _folded, family), group in groups.items():
+        display = displays.get((dept, _folded, family), (None, False))[0] or _folded
         sources = {
             slug: info for slug, info in group["sources"].items() if info["price"] is not None
         }
@@ -172,7 +236,7 @@ def _generic_lines(db: Any) -> list[dict[str, Any]]:
         lines.append(
             {
                 "department": dept,
-                "category": canonical,
+                "category": display,
                 "form": unit,  # form = unit for generic departments
                 "label": unit,
                 "unit": unit,

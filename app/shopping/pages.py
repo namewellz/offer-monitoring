@@ -15,6 +15,7 @@ from html import escape
 from typing import Any
 
 from app.catalog.taxonomy import CANONICAL_DEPARTMENTS
+from app.enrichment.canonical_name import _fold, canonical_name
 from app.enrichment.dashboard import RETAILER_LABELS
 
 _CSS = """
@@ -135,7 +136,8 @@ def _page(title: str, inner: str) -> str:
 <link rel="stylesheet" href="/static/catalog.css?v=20260829-4">
 <style>{_CSS}</style></head><body>
 <header class="topbar"><div class="shell brandbar">
-<a class="brand" href="/catalog"><span class="brand-mark">OM</span><span>Offer Monitor</span></a>
+<a class="brand" href="/"><span class="brand-mark">OM</span><span>Offer Monitor</span></a>
+<nav class="topnav"><a href="/">Início</a><a href="/catalog">Catálogo</a><a href="/catalog/updates">Atualizações</a></nav>
 <span class="live"><i></i> Lista de compras</span></div></header>
 <main class="shell">{inner}</main></body></html>"""
 
@@ -208,6 +210,26 @@ def render_builder(
         if not sources:
             continue
         sources.sort(key=lambda s: s["price"])
+        # termos de busca: nome canônico genérico + específico + marca (+amostras)
+        search_parts = [row.get("label") or row["form"], row["category"], department]
+        for source in sources:
+            sample = source.get("sample")
+            if sample:
+                canonical = canonical_name(sample, department=department)
+                search_parts += [
+                    canonical.generic, canonical.specific,
+                    canonical.brand or "", canonical.size or "",
+                ]
+            search_parts.append(source.get("store") or "")
+        seen_terms: set[str] = set()
+        terms: list[str] = []
+        for part in search_parts:
+            if not part:
+                continue
+            folded = _fold(part)
+            if folded not in seen_terms:
+                seen_terms.add(folded)
+                terms.append(part)
         key = f"{department}|{row['category']}|{row['form']}"
         row_map[key] = {
             "department": department,
@@ -215,6 +237,7 @@ def render_builder(
             "label": row.get("label") or row["form"],
             "category": row["category"],
             "form": row["form"],
+            "terms": " ".join(terms),
             "sources": sources,
         }
 
@@ -350,6 +373,7 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
       for (const k of cats[gk]) {
         const info = ROWS[k];
         if (fold(info.label).includes(t)) return true;
+        if (info.terms && fold(info.terms).includes(t)) return true;
         if (info.sources.some(s => fold((s.sample||'') + ' ' + (s.store||'')).includes(t))) return true;
       }
       return false;

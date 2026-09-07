@@ -51,7 +51,8 @@ const retailerNames = {
   'arena-atacado': 'Arena Atacado', goodbom: 'GoodBom', atacadao: 'Atacadão',
   savegnago: 'Savegnago', davitta: 'Davitta', assai: 'Assaí',
   tenda: 'Tenda Atacado', 'sao-vicente': 'São Vicente',
-  'max-atacadista': 'Max Atacadista'
+  'max-atacadista': 'Max Atacadista',
+  dalben: 'Dalben', spani: 'Spani', 'pague-menos': 'Pague Menos'
 };
 const statusNames = {
   queued: 'Na fila', started: 'Em andamento', deferred: 'Aguardando', scheduled: 'Agendada',

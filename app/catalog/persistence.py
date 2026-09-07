@@ -467,3 +467,72 @@ def persist_maxatacadista_catalog(db: Session, catalog: dict[str, Any]) -> Catal
         provider_type="max-public-api",
         store=store,
     )
+
+
+def _persist_store_catalog(
+    db: Session,
+    catalog: dict[str, Any],
+    *,
+    retailer_name: str,
+    retailer_slug: str,
+    provider_type: str,
+) -> CatalogRun:
+    retailer = db.scalar(select(Retailer).where(Retailer.slug == retailer_slug))
+    if retailer is None:
+        retailer = Retailer(name=retailer_name, slug=retailer_slug)
+        db.add(retailer)
+        db.flush()
+    store_data = catalog["store"]
+    store = db.scalar(
+        select(Store).where(
+            Store.retailer_id == retailer.id,
+            Store.name == store_data["name"],
+        )
+    )
+    if store is None:
+        store = Store(
+            retailer_id=retailer.id,
+            name=store_data["name"],
+            city=store_data["city"],
+            state=store_data["state"],
+        )
+        db.add(store)
+        db.flush()
+    return _persist_catalog(
+        db,
+        catalog,
+        retailer_name=retailer_name,
+        retailer_slug=retailer_slug,
+        provider_type=provider_type,
+        store=store,
+    )
+
+
+def persist_dalben_catalog(db: Session, catalog: dict[str, Any]) -> CatalogRun:
+    return _persist_store_catalog(
+        db,
+        catalog,
+        retailer_name="Dalben",
+        retailer_slug="dalben",
+        provider_type="dalben-vipcommerce-api",
+    )
+
+
+def persist_spani_catalog(db: Session, catalog: dict[str, Any]) -> CatalogRun:
+    return _persist_store_catalog(
+        db,
+        catalog,
+        retailer_name="Spani",
+        retailer_slug="spani",
+        provider_type="spani-vipcommerce-api",
+    )
+
+
+def persist_paguemenos_catalog(db: Session, catalog: dict[str, Any]) -> CatalogRun:
+    return _persist_store_catalog(
+        db,
+        catalog,
+        retailer_name="Pague Menos",
+        retailer_slug="pague-menos",
+        provider_type="paguemenos-convertiez-api",
+    )

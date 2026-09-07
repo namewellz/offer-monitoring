@@ -19,6 +19,9 @@ CATALOG_RETAILERS = (
     "tenda",
     "sao-vicente",
     "max-atacadista",
+    "dalben",
+    "spani",
+    "pague-menos",
 )
 
 
@@ -62,11 +65,11 @@ def enqueue_sources_without_collection() -> None:
     fonte recém-adicionada no código/deploy.
     """
     from app.catalog.v2.registry import CATALOG_SOURCES
+    from app.db.models import Retailer
     from app.db.models_v2 import (
         CatalogSource,
         CollectionRun,
         CollectionTarget,
-        Retailer,
     )
 
     with SessionLocal() as db:

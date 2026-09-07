@@ -10,6 +10,7 @@ from app.catalog.atacadao import AtacadaoCatalogClient
 from app.catalog.davita import DavitaCatalogClient
 from app.catalog.goodbom import GoodBomCatalogClient
 from app.catalog.maxatacadista import MaxAtacadistaCatalogClient
+from app.catalog.paguemenos import PagueMenosCatalogClient
 from app.catalog.persistence import (
     persist_arena_catalog,
     persist_assai_catalog,
@@ -20,10 +21,14 @@ from app.catalog.persistence import (
     persist_saovicente_catalog,
     persist_savegnago_catalog,
     persist_tenda_catalog,
+    persist_dalben_catalog,
+    persist_spani_catalog,
+    persist_paguemenos_catalog,
 )
 from app.catalog.saovicente import SaoVicenteCatalogClient
 from app.catalog.savegnago import SavegnagoCatalogClient
 from app.catalog.tenda import TendaCatalogClient
+from app.catalog.vipcommerce import DalbenCatalogClient, SpaniCatalogClient
 from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.discovery.service import discover_source
@@ -73,6 +78,13 @@ CATALOG_COLLECTORS = {
         MaxAtacadistaCatalogClient,
         persist_maxatacadista_catalog,
         "max-atacadista",
+    ),
+    "dalben": (DalbenCatalogClient, persist_dalben_catalog, "dalben"),
+    "spani": (SpaniCatalogClient, persist_spani_catalog, "spani"),
+    "pague-menos": (
+        PagueMenosCatalogClient,
+        persist_paguemenos_catalog,
+        "pague-menos",
     ),
 }
 

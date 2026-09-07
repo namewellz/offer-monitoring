@@ -37,6 +37,11 @@ CATALOG_SOURCES: dict[str, SourceConfig] = {
     "tenda": SourceConfig("tenda-public-api", "tenda-public-api"),
     "sao-vicente": SourceConfig("saovicente-demandware-api", "saovicente-demandware-api"),
     "max-atacadista": SourceConfig("max-public-api", "max-public-api"),
+    "dalben": SourceConfig("dalben-vipcommerce", "dalben-vipcommerce-api"),
+    "spani": SourceConfig("spani-vipcommerce", "spani-vipcommerce-api"),
+    "pague-menos": SourceConfig(
+        "paguemenos-convertiez", "paguemenos-convertiez-api"
+    ),
 }
 
 # Codes the collectors still hardcode (README documents each one). The payload
@@ -54,6 +59,21 @@ TARGET_DEFAULTS: dict[str, TargetDefaults] = {
         reference_postal_code="13184-222",
     ),
     "goodbom": TargetDefaults(reference_postal_code="13184-222"),
+    "dalben": TargetDefaults(
+        external_store_id="29:1:1",
+        external_store_code="superdalben.com.br",
+        reference_postal_code="13076-000",
+    ),
+    "spani": TargetDefaults(
+        external_store_id="67:1:42",
+        external_store_code="spanionline.com.br",
+        reference_postal_code="13060-080",
+    ),
+    "pague-menos": TargetDefaults(
+        external_store_id="60.494.416/0015-30",
+        external_store_code="loja-16-rosolen",
+        reference_postal_code="13184-222",
+    ),
 }
 
 COLLECTOR_VERSION = "v2-dual-write-0.1"

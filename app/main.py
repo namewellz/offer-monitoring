@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.annotation.routes import router as annotation_router
 from app.catalog.dashboard import RETAILERS, render_catalog_dashboard
+from app.home import render_home
 from app.catalog.taxonomy import CANONICAL_DEPARTMENTS
 from app.catalog.update_dashboard import render_update_dashboard
 from app.catalog.v2.read import (
@@ -144,12 +145,133 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
     threading.Thread(target=_butcher_warm_loop, daemon=True, name="butcher-warm").start()
+    threading.Thread(target=_views_refresh_loop, daemon=True, name="views-refresh").start()
     yield
 
 
 app = FastAPI(title="Offer Monitoring", version="0.1.0", lifespan=lifespan)
 app.include_router(annotation_router)
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
+
+
+import threading as _threading
+import time as _time
+
+_VIEWS_CACHE = {}
+_VIEWS_LOCK = _threading.Lock()
+_VIEWS_FP = {"fp": None}
+_VIEWS_LAST_PRIME = {"ts": 0.0}
+
+
+def _fingerprint(db) -> str:
+    """Geração dos dados: muda quando há nova coleta ou classificação."""
+    from hashlib import sha256
+
+    from app.db.models_v2 import CollectionRun, LlmClassification
+
+    runs = db.execute(
+        select(func.max(CollectionRun.finished_at), func.count()).select_from(CollectionRun)
+    ).first()
+    cls = db.execute(
+        select(func.max(LlmClassification.updated_at), func.count()).select_from(LlmClassification)
+    ).first()
+    payload = f"{runs[0]}|{runs[1]}|{cls[0]}|{cls[1]}"
+    return sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
+def _views_get(key: str, build, db):
+    """Cache por geração: recalcula apenas quando os dados (coletas/LLM) mudam."""
+    fp = _fingerprint(db)
+    with _VIEWS_LOCK:
+        entry = _VIEWS_CACHE.get(key)
+        if entry is not None and entry[0] == fp:
+            return entry[1]
+    value = build()
+    with _VIEWS_LOCK:
+        _VIEWS_CACHE[key] = (fp, value)
+        if len(_VIEWS_CACHE) > 300:
+            _VIEWS_CACHE.pop(next(iter(_VIEWS_CACHE)), None)
+    return value
+
+
+def _views_prime(db) -> None:
+    """Pré-calcula as visões pesadas da geração atual (e reaquece caches legados)."""
+    fp = _fingerprint(db)
+    with _VIEWS_LOCK:
+        done = _VIEWS_FP.get("fp") == fp and bool(_VIEWS_CACHE)
+    _VIEWS_FP["fp"] = fp
+    if done:
+        return
+
+    def store(key, build):
+        try:
+            value = build()
+        except Exception:
+            return
+        with _VIEWS_LOCK:
+            _VIEWS_CACHE[key] = (fp, value)
+
+    store("review:Açougue", lambda: butcher_review(db))
+    store("review:Mercearia", lambda: department_review(db, "Mercearia"))
+    for view in ("offers", "changes"):
+        store(
+            f"v2results|None|None|None|all|0|{view}",
+            lambda v=view: v2_price_results(db, view=v),
+        )
+    # caches internos (butcher/produce/lista) também refletem a nova geração
+    try:
+        from app.enrichment.produce_prices import warm_produce_prices
+
+        warm_produce_prices("Hortifruti")
+    except Exception:
+        pass
+    try:
+        from app.enrichment.butcher import warm_butcher_cache
+
+        warm_butcher_cache()
+    except Exception:
+        pass
+    try:
+        from app.enrichment.shop_catalog import warm_shop_catalog
+
+        warm_shop_catalog()
+    except Exception:
+        pass
+
+
+def _views_refresh_loop() -> None:
+    """Watcher: ao detectar nova coleta/classificação invalida e pré-calcula."""
+    _time.sleep(1)
+
+    def prime_thread():
+        try:
+            from app.db.session import SessionLocal
+
+            with SessionLocal() as db:
+                _views_prime(db)
+        except Exception:
+            pass
+
+    prime_thread()
+    while True:
+        _time.sleep(6)
+        try:
+            from app.db.session import SessionLocal
+
+            with SessionLocal() as db:
+                fp = _fingerprint(db)
+            if fp != _VIEWS_FP.get("fp"):
+                _VIEWS_FP["fp"] = fp
+                with _VIEWS_LOCK:
+                    stale = [k for k, (generation, _v) in _VIEWS_CACHE.items() if generation != fp]
+                    for key in stale:
+                        _VIEWS_CACHE.pop(key, None)
+                now = _time.monotonic()
+                if now - _VIEWS_LAST_PRIME["ts"] > 60:
+                    _VIEWS_LAST_PRIME["ts"] = now
+                    _threading.Thread(target=prime_thread, daemon=True).start()
+        except Exception:
+            pass
 
 
 def latest_catalog_run_ids():
@@ -544,7 +666,12 @@ def offer_results(
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-def dashboard(product: str | None = None, db: Session = Depends(get_db)):
+def home(db: Session = Depends(get_db)):
+    return render_home(db)
+
+
+@app.get("/ofertas", response_class=HTMLResponse, include_in_schema=False)
+def offers_dashboard(product: str | None = None, db: Session = Depends(get_db)):
     results = offer_results(db, product)
     rows = []
     for result in results:
@@ -853,14 +980,18 @@ def butcher_review_page(db: Session = Depends(get_db), department: str = "Açoug
     (categorias canônicas + amostras + rejeitados). Troque com o seletor.
     """
     if department == "Açougue":
-        return render_butcher_review(butcher_review(db))
-    return render_department_review_page(department_review(db, department))
+        rows = _views_get("review:Açougue", lambda: butcher_review(db), db)
+        return render_butcher_review(rows)
+    rows = _views_get(
+        f"review:{department}", lambda: department_review(db, department), db
+    )
+    return render_department_review_page(rows)
 
 
 @app.get("/catalog/butcher-review.json")
 def butcher_review_json(db: Session = Depends(get_db)):
     """JSON payload behind the review screen (same shape as the exported file)."""
-    return butcher_review(db)
+    return _views_get("review:Açougue", lambda: butcher_review(db), db)
 
 
 @app.get("/catalog/dept-prices", response_class=HTMLResponse, include_in_schema=False)
@@ -888,12 +1019,17 @@ def produce_prices_json(db: Session = Depends(get_db)):
 @app.get("/catalog/department-review", response_class=HTMLResponse, include_in_schema=False)
 def department_review_page(db: Session = Depends(get_db), department: str = "Mercearia"):
     """Revisão da classificação de um departamento (não só Açougue)."""
-    return render_department_review_page(department_review(db, department))
+    rows = _views_get(
+        f"review:{department}", lambda: department_review(db, department), db
+    )
+    return render_department_review_page(rows)
 
 
 @app.get("/catalog/department-review.json")
 def department_review_json(db: Session = Depends(get_db), department: str = "Mercearia"):
-    return department_review(db, department)
+    return _views_get(
+        f"review:{department}", lambda: department_review(db, department), db
+    )
 
 
 @app.get("/catalog/categories", response_class=HTMLResponse, include_in_schema=False)
@@ -1171,14 +1307,23 @@ def catalog_dashboard(
         )
         page_results = [v2_row_result(row) for row in rows]
     else:
-        results = v2_price_results(
+        cache_key = "v2results|" + "|".join(
+            str(value) for value in (
+                product, retailer, department, direction, minimum_percent, view
+            )
+        )
+        results = _views_get(
+            cache_key,
+            lambda: v2_price_results(
+                db,
+                product=product,
+                retailer=retailer,
+                department=department,
+                direction=direction,
+                minimum_percent=minimum_percent,
+                view=view,
+            ),
             db,
-            product=product,
-            retailer=retailer,
-            department=department,
-            direction=direction,
-            minimum_percent=minimum_percent,
-            view=view,
         )
         total_results = len(results)
         total_pages = max(1, (total_results + page_size - 1) // page_size)
