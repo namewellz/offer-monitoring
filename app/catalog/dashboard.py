@@ -6,6 +6,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from app.catalog.taxonomy import CANONICAL_DEPARTMENTS
+from app.core.timezone import to_local
 
 RETAILERS = (
     ("arena-atacado", "Arena Atacado"),
@@ -110,7 +111,7 @@ def render_catalog_dashboard(
             f'<td data-label="Preço atual"><strong>{_money(result["current_price"])}</strong></td>'
             f'<td data-label="Condição" class="condition">{escape(result["price_condition"])}</td>'
             f'<td data-label="Variação"><span class="change {css_class}">{variation}</span></td>'
-            f'<td data-label="Coleta"><time datetime="{observed.isoformat()}">{observed.strftime("%d/%m/%Y %H:%M")}</time></td>'
+            f'<td data-label="Coleta"><time datetime="{observed.isoformat()}">{to_local(observed).strftime("%d/%m/%Y %H:%M")}</time></td>'
             "</tr>"
         )
 
@@ -174,7 +175,7 @@ def render_catalog_dashboard(
             f"{previous}<span>Página <strong>{page}</strong> de <strong>{total_pages}</strong></span>"
             f"{following}</nav>"
         )
-    last_label = last_collected.strftime("%d/%m às %H:%M") if last_collected else "Sem coletas"
+    last_label = to_local(last_collected).strftime("%d/%m às %H:%M") if last_collected else "Sem coletas"
     run_items = "".join(
         f'<li><span><strong>{escape(run["retailer"])}</strong>'
         f'<small>{escape(run["store"] or "Catálogo geral")}</small></span>'

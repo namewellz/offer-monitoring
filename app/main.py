@@ -15,6 +15,7 @@ from app.catalog.dashboard import RETAILERS, render_catalog_dashboard
 from app.home import render_home
 from app.catalog.taxonomy import CANONICAL_DEPARTMENTS
 from app.catalog.update_dashboard import render_update_dashboard
+from app.core.timezone import to_local
 from app.catalog.v2.read import (
     count_current_listings as v2_count_current_listings,
 )
@@ -1388,7 +1389,7 @@ def legacy_catalog_dashboard(
             f"<td>R$ {result['current_price']:.2f}</td>"
             f"<td>{escape(condition)}</td>"
             f'<td class="{css_class}">{arrow} {percent:+.2f}%</td>'
-            f"<td>{result['observed_at'].strftime('%d/%m/%Y %H:%M')}</td>"
+            f"<td>{to_local(result['observed_at']).strftime('%d/%m/%Y %H:%M')}</td>"
             "</tr>"
         )
     empty = '<tr><td colspan="9">Nenhuma alteração de preço na coleta mais recente.</td></tr>'

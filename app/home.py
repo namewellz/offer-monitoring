@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import func, select
 
 from app.catalog.v2.read import latest_runs
+from app.core.timezone import to_local
 from app.db.models_v2 import ShoppingList
 
 _GREEN = "#145c42"
@@ -193,7 +194,7 @@ def render_home(db: Any) -> str:
         for section in SECTIONS
     )
 
-    last_label = last_run.strftime("%d/%m às %H:%M") if last_run else "—"
+    last_label = to_local(last_run).strftime("%d/%m às %H:%M") if last_run else "—"
     return f"""<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">

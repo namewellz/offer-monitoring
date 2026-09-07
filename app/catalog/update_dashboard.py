@@ -4,6 +4,8 @@ from datetime import datetime
 from html import escape
 from typing import Any
 
+from app.core.timezone import to_local
+
 STATUS_LABELS = {
     "SUCCESS": "Concluída",
     "FINISHED": "Concluída",
@@ -23,7 +25,7 @@ def _number(value: int | None) -> str:
 
 
 def _date(value: datetime | None) -> str:
-    return value.astimezone().strftime("%d/%m/%Y %H:%M") if value else "Sem registro"
+    return to_local(value).strftime("%d/%m/%Y %H:%M") if value else "Sem registro"
 
 
 def _execution_html(execution: dict[str, Any]) -> str:
