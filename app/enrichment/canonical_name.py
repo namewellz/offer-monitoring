@@ -100,8 +100,22 @@ _BRAND_RELEVANT: dict[str, tuple[str, ...]] = {
     "Sabonete": ("sabonete",),
     "Creme Dental": ("creme dental", "pasta de dente"),
     "Desodorante": ("desodorante", "antitranspirante"),
-    "Sabão em Pó": ("sabao em po",),
-    "Sabão em Barra": ("sabao em barra", "sabao"),
+    "Sabão Líquido": (
+        "sabao liquido",
+        "sabao liquida",
+        "lava roupa liquido",
+        "lava roupas liquido",
+        "lava-roupa liquido",
+        "lava-roupas liquido",
+    ),
+    "Sabão em Pó": ("sabao em po", "sabao po", "sabao em pó"),
+    "Sabão em Barra": (
+        "sabao em barra",
+        "sabao de barra",
+        "sabao barra",
+        "sabao em pedra",
+        "sabao glicerina",
+    ),
     "Detergente": ("detergente",),
     "Amaciante": ("amaciante",),
     "Água Sanitária": ("agua sanitaria",),
@@ -216,15 +230,33 @@ def _extract_size(words: list[str]) -> tuple[str | None, list[int]]:
 
 
 def _class_of(words: list[str], text: str, department: str | None) -> tuple[str | None, bool]:
-    """Return (display class, brand_relevant) scanning the folded name+category text."""
+    """Return (display class, brand_relevant) scanning the folded name+category text.
+
+    Synonyms are matched as whole words (word boundaries), never as raw
+    substrings, so a short synonym such as ``gin`` cannot match inside
+    ``original`` nor ``sal`` inside ``salgado``.
+    """
     folded = _fold(text)
+
+    def phrase(synonym: str) -> bool:
+        tokens = [re.escape(word) for word in _fold(synonym).split()]
+        if not tokens:
+            return False
+        # tokens casam por palavra; o último aceita plural simples (+s) porque
+        # categorias/sites costumam pluralizar ("cervejas", "aguas").
+        head = r"\s+".join(tokens[:-1])
+        if head:
+            head += r"\s+"
+        pattern = r"(?<![a-z0-9])" + head + tokens[-1] + r"s?(?![a-z0-9])"
+        return re.search(pattern, folded) is not None
+
     for display, synonyms in _BRAND_RELEVANT.items():
         for synonym in synonyms:
-            if synonym in folded:
+            if phrase(synonym):
                 return display, True
     for display, synonyms in _BRAND_IRRELEVANT.items():
         for synonym in synonyms:
-            if synonym in folded:
+            if phrase(synonym):
                 return display, False
     # department-level fallback for obvious grocery depts
     if department in ("Bebidas", "Mercearia", "Frios e Laticínios", "Doces e Sobremesas",

@@ -103,3 +103,59 @@ def test_search_terms_cover_generic_specific_brand() -> None:
     assert "heineken" in joined
     assert "350ml" in joined
     assert "lata" in joined
+
+
+def test_liquid_soap_is_not_bar_soap() -> None:
+    result = canonical_name(
+        "Sabão Líquido Omo Puro Cuidado Para Diluir 500ml",
+        brand="Omo",
+        department="Limpeza",
+    )
+    assert result.generic == "Sabão Líquido"
+    assert result.specific == "Sabão Líquido Omo 500ml"
+    assert result.class_name == "Sabão Líquido"
+
+
+def test_lava_roupas_liquido_is_liquid_soap() -> None:
+    result = canonical_name(
+        "Lava Roupa Líquido Ola Original 1L",
+        department="Limpeza",
+    )
+    assert result.generic == "Sabão Líquido"
+    assert result.brand_relevant is True
+
+
+def test_word_gin_does_not_match_inside_original() -> None:
+    result = canonical_name(
+        "Sabão Líquido Omo Original 1L",
+        brand="Omo",
+        department="Limpeza",
+    )
+    assert result.generic == "Sabão Líquido"
+    assert result.class_name != "Gin"
+
+
+def test_powder_soap_is_not_bar_soap() -> None:
+    result = canonical_name("SABAO PO OMO LAVAGEM PERFEITA C", department="Limpeza")
+    assert result.generic == "Sabão em Pó"
+
+
+def test_bar_soap_still_bar_soap() -> None:
+    result = canonical_name("Sabão em Barra Omo 200g", department="Limpeza")
+    assert result.generic == "Sabão em Barra"
+    assert result.specific == "Sabão em Barra Omo 200g"
+
+
+def test_plural_class_word_still_detected() -> None:
+    result = canonical_name("Cervejas Skol 269ml", department="Bebidas")
+    assert result.generic == "Cerveja"
+
+
+def test_substring_does_not_bleed_between_classes() -> None:
+    # "sal" não pode classificar um salgadinho; "cha" não pode virar "chá".
+    result = canonical_name(
+        "Biscoito Salgado", department="Mercearia", categories=["Mercearia", "Biscoitos"]
+    )
+    assert result.generic == "Biscoito"
+
+
