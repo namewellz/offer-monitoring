@@ -1,0 +1,9 @@
+{"source_product_id": "sp:cerveja-heineken-600", "candidate_ids": ["t:heineken-600", "v:cerveja-pilsen"]}
+{"source_product_id": "sp:cerveja-brahma-dm-269", "candidate_ids": ["t:brahma-dm-269", "t:bud-350"]}
+{"source_product_id": "sp:cerveja-bud-350", "candidate_ids": ["t:bud-350", "t:bud-zero-350"]}
+{"source_product_id": "sp:cerveja-bud-zero-350", "candidate_ids": ["t:bud-350", "t:bud-zero-350"]}
+{"source_product_id": "sp:cerveja-amstel-350", "candidate_ids": ["t:amstel-350", "t:bud-350"]}
+{"source_product_id": "sp:arroz-camil-t1-5kg", "candidate_ids": ["t:camil-t1-5kg", "t:prato-fino-t1-5kg", "v:arroz-tipo-1"]}
+{"source_product_id": "sp:arroz-camil-parb-1kg", "candidate_ids": ["t:camil-parb-1kg", "t:camil-t1-5kg"]}
+{"source_product_id": "sp:arroz-camil-lf-t1-5kg", "candidate_ids": ["t:camil-t1-5kg", "t:prato-fino-t1-5kg"]}
+{"source_product_id": "sp:arroz-prato-fino-5kg", "candidate_ids": ["t:prato-fino-t1-5kg", "t:camil-t1-5kg"]}

@@ -30,7 +30,11 @@ class TargetDefaults:
 CATALOG_SOURCES: dict[str, SourceConfig] = {
     "arena-atacado": SourceConfig("arena-public-api", "arena-api"),
     "goodbom": SourceConfig("goodbom-mercafacil-api", "goodbom-api"),
-    "atacadao": SourceConfig("atacadao-vtex", "atacadao-vtex-api"),
+    # The VTEX simulation was replaced by the official app's in-store offers API
+    # (shelf price plus the app / app+card tiers, per physical branch), so the
+    # channel code changed with it: this fork is intentional, the price tiers of
+    # the two channels are not comparable.
+    "atacadao": SourceConfig("atacadao-app", "atacadao-app-api"),
     "savegnago": SourceConfig("savegnago-vtex", "savegnago-vtex-api"),
     "davitta": SourceConfig("davita-mobilesim-api", "davita-mobilesim-api"),
     "assai": SourceConfig("meu-assai-authenticated-api", "assai-authenticated-api"),

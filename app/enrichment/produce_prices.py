@@ -20,12 +20,12 @@ from typing import Any
 
 from sqlalchemy import select
 
-from app.catalog.v2.read import current_listings
+from app.catalog.v2.read import current_listings, is_price_fresh
 from app.db.models_v2 import LlmClassification
 from app.enrichment.produce import normalize_produce
 from app.enrichment.units import PACKAGE_CATEGORIES
 
-_IDX = {"cents": 2, "pid": 7, "raw": 9, "retailer_name": 13, "retailer": 14, "store": 15}
+_IDX = {"cents": 2, "confirmed": 5, "pid": 7, "raw": 9, "retailer_name": 13, "retailer": 14, "store": 15}
 
 _CACHE: dict[str, Any] = {"key": None, "payload": None, "ts": 0.0}
 _TTL = 300
@@ -240,6 +240,8 @@ def _compute(db: Any, department: str) -> dict[str, Any]:
             continue
         cents = row[_IDX["cents"]]
         if cents is None or cents <= 0:
+            continue
+        if not is_price_fresh(row[_IDX["confirmed"]]):
             continue
         raw = row[_IDX["raw"]] or ""
         entries.append(

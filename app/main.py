@@ -4,7 +4,7 @@ from html import escape
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from redis import Redis
 from sqlalchemy import func, or_, select, text
@@ -75,7 +75,7 @@ from app.enrichment.produce_prices import produce_price_rows
 from app.enrichment.produce_prices_dashboard import render_produce_prices_page
 from app.enrichment.review import butcher_review
 from app.enrichment.review_dashboard import render_butcher_review
-from app.enrichment.shop_catalog import catalog_rows
+from app.enrichment.shop_catalog import catalog_search_index, catalog_search_index_json
 from app.extraction.ollama_client import OllamaVisionClient
 from app.jobs.queue import (
     catalog_collection_job,
@@ -1079,8 +1079,14 @@ def categories_normalize(db: Session = Depends(get_db), department: str = "Açou
 # --- Lista de compras ---------------------------------------------------------
 
 
-def _shopping_rows(db: Session) -> list:
-    return catalog_rows(db)
+@app.get("/api/shopping/catalog", include_in_schema=False)
+def shopping_catalog(db: Session = Depends(get_db)):
+    """Catálogo de produtos adicionáveis (JSON, cache por TTL).
+
+    Buscado pelo navegador apenas quando o usuário usa a caixa "Adicionar
+    itens"; nunca é embutido na página da lista.
+    """
+    return Response(catalog_search_index_json(db), media_type="application/json")
 
 
 @app.get("/shopping-lists", response_class=HTMLResponse, include_in_schema=False)
@@ -1113,7 +1119,7 @@ def shopping_builder(list_id: int, db: Session = Depends(get_db)):
     return render_builder(
         obj.name,
         obj.id,
-        _shopping_rows(db),
+        catalog_search_index(db),
         shopping_store.items(db, obj.id),
     )
 

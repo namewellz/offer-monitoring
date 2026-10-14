@@ -16,6 +16,7 @@ class MeatItem:
     product_id: int
     raw_name: str
     effective_price_cents: int | None = None
+    price_basis_unit: str | None = None
     parsed: ParsedMeat = field(init=False)
 
     def __post_init__(self) -> None:
@@ -27,6 +28,11 @@ class MeatItem:
         if self.effective_price_cents is None:
             return None
         price = Decimal(self.effective_price_cents) / 100
+        basis = (self.price_basis_unit or "").strip().upper()
+        if basis == "KG":
+            # O coletor já normalizou o preço por quilo (ex.: "1,500Kg Peça
+            # Vácuo" cobrado por kg); não dividir de novo pelo peso do nome.
+            return price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         mode = self.parsed.sale_mode
         if mode == "kg":
             return price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)

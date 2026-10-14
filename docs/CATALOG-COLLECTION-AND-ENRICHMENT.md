@@ -4,6 +4,13 @@
 
 Status: **proposta de arquitetura; ainda não implementada**.
 
+> **Atualização de estratégia (2026-09-07):** as decisões deste documento sobre
+> coleta, filiais, produto original, versionamento e períodos de preço continuam
+> válidas. Para enriquecimento e resolução canônica, a especificação vigente é
+> [`V2-LLM-FIRST-CANONICAL-SPEC.md`](V2-LLM-FIRST-CANONICAL-SPEC.md), que coloca
+> a LLM como intérprete principal por fingerprint e usa regras determinísticas
+> como validação, cache e governança.
+
 Este documento descreve a evolução completa do fluxo de catálogos obtidos por
 APIs: múltiplas redes e filiais, identidade original das fontes, histórico de
 preço somente por mudança, normalização, enriquecimento, resolução entre

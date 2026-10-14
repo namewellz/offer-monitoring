@@ -97,12 +97,23 @@ def run_catalog_collection(retailer_slug: str) -> dict | None:
         return None
     try:
         collector_type, persist, prefix = CATALOG_COLLECTORS[retailer_slug]
-        catalog = asyncio.run(collector_type().collect())
+        collector = collector_type()
+        # Multi-store collectors (one catalog per physical branch) advertise this;
+        # single-store collectors keep the historical one-catalog behaviour.
+        collect_all = getattr(collector, "collect_all", None)
+        catalogs = asyncio.run(collect_all()) if callable(collect_all) else [asyncio.run(collector.collect())]
         output = get_settings().flyer_storage_path / "catalog" / retailer_slug
-        write_catalog(catalog, Path(output), prefix=prefix)
-        with SessionLocal() as db:
-            run = persist(db, catalog)
-            outcome = run.status.value
+        run = None
+        errors: list[dict] = []
+        runs: list[str] = []
+        for index, catalog in enumerate(catalogs):
+            catalog_prefix = prefix if len(catalogs) == 1 else f"{prefix}-{index:02d}"
+            write_catalog(catalog, Path(output), prefix=catalog_prefix)
+            with SessionLocal() as db:
+                run = persist(db, catalog)
+            errors.extend(catalog.get("collection_errors", []))
+            runs.append(str(run.id))
+        outcome = run.status.value if run is not None else "FAILED"
         # pós-coleta: agenda a classificação incremental dos produtos novos
         if outcome in ("SUCCESS", "PARTIAL_SUCCESS"):
             from app.jobs.queue import enqueue_classify_new
@@ -112,9 +123,11 @@ def run_catalog_collection(retailer_slug: str) -> dict | None:
             except Exception:
                 pass
         return {
-            "run_id": str(run.id),
+            "run_id": str(run.id) if run is not None else None,
             "status": outcome,
-            "errors": catalog.get("collection_errors", []),
+            "errors": errors,
+            "stores": len(catalogs),
+            "runs": runs,
         }
     finally:
         lock.release()

@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.catalog.v2.read import current_listings
+from app.catalog.v2.read import current_listings, is_price_fresh
 from app.classification.canonical import canonical_map, seed_categories
 from app.db.models_v2 import LlmClassification
 from app.enrichment.resolver import MeatItem
@@ -16,10 +16,12 @@ from app.enrichment.resolver import MeatItem
 # tuple indexes of current_listings row
 _IDX = {
     "effective_cents": 2,
+    "confirmed": 5,
     "product_id": 7,
     "raw_name": 9,
     "retailer": 14,
     "store": 15,
+    "basis": 16,
 }
 
 _CACHE: dict[str, Any] = {"ts": 0.0, "payload": None, "use_llm": True}
@@ -105,12 +107,16 @@ def _compute(db: Session, use_llm: bool) -> tuple[int, list[dict[str, Any]], dic
         effective = row[_IDX["effective_cents"]]
         if effective is None or effective <= 0:
             continue
+        # Preço só vale se foi re-confirmado há no máximo 2 dias.
+        if not is_price_fresh(row[_IDX["confirmed"]]):
+            continue
         item = MeatItem(
             retailer=row[_IDX["retailer"]],
             store=row[_IDX["store"]],
             product_id=row[_IDX["product_id"]],
             raw_name=raw_name,
             effective_price_cents=effective,
+            price_basis_unit=row[_IDX["basis"]],
         )
         if not item.parsed.is_meat:
             continue

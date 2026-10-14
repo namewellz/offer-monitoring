@@ -15,7 +15,6 @@ from html import escape
 from typing import Any
 
 from app.catalog.taxonomy import CANONICAL_DEPARTMENTS
-from app.enrichment.canonical_name import _fold, canonical_name
 from app.enrichment.dashboard import RETAILER_LABELS
 
 _CSS = """
@@ -195,63 +194,23 @@ def render_index(lists: list[dict[str, Any]]) -> str:
 def render_builder(
     name: str,
     list_id: int,
-    rows: list[dict[str, Any]],
+    catalog: dict[str, dict[str, Any]],
     list_items: list[dict[str, Any]],
 ) -> str:
-    # compact comparable rows keyed "department|category|form/unit" with sources
-    row_map: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        department = row.get("department") or "Açougue"
-        unit = row.get("unit") or "kg"
-        sources = []
-        for slug, info in (row.get("sources") or {}).items():
-            price = info.get("price") if isinstance(info, dict) else None
-            if price is None:
-                continue
-            sources.append(
-                {
-                    "slug": slug,
-                    "price": float(price),
-                    "store": info.get("store") if isinstance(info, dict) else None,
-                    "sample": info.get("sample") if isinstance(info, dict) else None,
-                }
-            )
-        if not sources:
-            continue
-        sources.sort(key=lambda s: s["price"])
-        # termos de busca: nome canônico genérico + específico + marca (+amostras)
-        search_parts = [row.get("label") or row["form"], row["category"], department]
-        for source in sources:
-            sample = source.get("sample")
-            if sample:
-                canonical = canonical_name(sample, department=department)
-                search_parts += [
-                    canonical.generic, canonical.specific,
-                    canonical.brand or "", canonical.size or "",
-                ]
-            search_parts.append(source.get("store") or "")
-        seen_terms: set[str] = set()
-        terms: list[str] = []
-        for part in search_parts:
-            if not part:
-                continue
-            folded = _fold(part)
-            if folded not in seen_terms:
-                seen_terms.add(folded)
-                terms.append(part)
-        key = f"{department}|{row['category']}|{row['form']}"
-        row_map[key] = {
-            "department": department,
-            "unit": unit,
-            "label": row.get("label") or row["form"],
-            "category": row["category"],
-            "form": row["form"],
-            "terms": " ".join(terms),
-            "sources": sources,
-        }
+    # catalog = índice client-ready keyed "department|category|form", pré-computado
+    # e cacheado em shop_catalog. A página embute APENAS as linhas da lista (mais
+    # as formas alternativas da mesma categoria, para Hortifrúti trocar unidade),
+    # nunca o catálogo inteiro.
+    item_map: dict[str, dict[str, Any]] = {}
+    prefixes = {
+        f"{(it.get('department') or 'Açougue')}|{it['category']}|" for it in list_items
+    }
+    for key, info in catalog.items():
+        if any(key.startswith(prefix) for prefix in prefixes):
+            item_map[key] = info
 
-    item_rows = [_item_row(it, row_map) for it in list_items]
-    payload_rows = json.dumps(row_map, ensure_ascii=False)
+    item_rows = [_item_row(it, item_map) for it in list_items]
+    payload_rows = json.dumps(item_map, ensure_ascii=False)
     has_items = bool(item_rows)
     dept_opts = "<option value='all'>Todos os departamentos</option>" + "".join(
         f'<option value="{escape(d)}">{escape(d)}</option>' for d in CANONICAL_DEPARTMENTS
@@ -366,10 +325,15 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
   const lineTitle = (d,lab,u) => d === 'Açougue' ? (lab + ' · ' + u) : ('por ' + (UT[u] || u));
   const TP = {'kg':'Kilo','L':'Litro','un':'Unidade','pacote':'Pacote','caixa':'Caixa','embalagem':'Embalagem'};
   const fold = s => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-  const cats = {};
-  for (const k in ROWS) { const [d,c] = k.split('|'); (cats[d + '|' + c] = cats[d + '|' + c] || []).push(k); }
+  let cats = {};
+  let catList = [];
+  function buildCats() {
+    cats = {};
+    for (const k in ROWS) { const [d,c] = k.split('|'); (cats[d + '|' + c] = cats[d + '|' + c] || []).push(k); }
+    catList = Object.keys(cats).sort();
+  }
+  buildCats();
   function formsFor(d,c){ const fs=[]; for (const k of (cats[d + '|' + c] || [])){ const f=ROWS[k].form; if (fs.indexOf(f)<0) fs.push(f); } return fs; }
-  const catList = Object.keys(cats).sort();
   const search = document.getElementById('search');
   const deptSel = document.getElementById('deptfilter');
   const pick = document.getElementById('pick');
@@ -380,6 +344,34 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
   const btnFlat = document.getElementById('viewFlat');
   const btnMarket = document.getElementById('viewMarket');
   let marketView = false;
+
+  // Catálogo completo só é buscado quando o usuário usa a busca (nunca na página).
+  let fullCatalogLoaded = false;
+  let catalogLoading = false;
+  let catalogWaiters = [];
+  function ensureCatalog(after) {
+    if (fullCatalogLoaded) { after(); return; }
+    catalogWaiters.push(after);
+    if (catalogLoading) return;
+    catalogLoading = true;
+    if (hint) hint.textContent = 'Carregando produtos…';
+    fetch('/api/shopping/catalog')
+      .then(r => { if (!r.ok) throw new Error('bad status'); return r.json(); })
+      .then(data => {
+        for (const k in data) { if (!(k in ROWS)) ROWS[k] = data[k]; }
+        buildCats();
+        fullCatalogLoaded = true;
+        catalogLoading = false;
+        const waiters = catalogWaiters; catalogWaiters = [];
+        for (const fn of waiters) fn();
+      })
+      .catch(() => { catalogLoading = false; catalogWaiters = []; });
+  }
+  function onSearch() {
+    const t = fold(search.value.trim());
+    if (!t && deptSel.value === 'all') { pick.style.display = 'none'; pick.innerHTML = ''; hint.textContent = ''; return; }
+    ensureCatalog(renderPick);
+  }
 
   function renderPick() {
     const t = fold(search.value.trim());
@@ -465,8 +457,8 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
       ? (show.length + (show.length > 30 ? '+' : '') + ' produto(s) — clique para adicionar (qtd 1)')
       : (t ? 'Nada encontrado para "' + search.value.trim() + '"' : 'Nenhuma categoria neste departamento.');
   }
-  search.addEventListener('input', renderPick);
-  deptSel.addEventListener('change', renderPick);
+  search.addEventListener('input', onSearch);
+  deptSel.addEventListener('change', onSearch);
 
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   function makeRow(it) {

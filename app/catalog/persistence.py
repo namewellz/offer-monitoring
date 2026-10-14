@@ -272,7 +272,7 @@ def persist_atacadao_catalog(db: Session, catalog: dict[str, Any]) -> CatalogRun
         catalog,
         retailer_name="Atacadão",
         retailer_slug="atacadao",
-        provider_type="atacadao-vtex-api",
+        provider_type="atacadao-app-api",
         store=store,
     )
 

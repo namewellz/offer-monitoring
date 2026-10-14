@@ -11,13 +11,14 @@ lines so a shopping list can include any classified product.
 
 from __future__ import annotations
 
+import json
 import time
 from collections import defaultdict
 from typing import Any
 
 from sqlalchemy import select
 
-from app.catalog.v2.read import current_listings
+from app.catalog.v2.read import current_listings, is_price_fresh
 from app.db.models_v2 import LlmCategoryLabel, LlmClassification
 from app.enrichment.butcher import butcher_comparison
 from app.enrichment.canonical_name import _fold, canonical_name
@@ -29,7 +30,7 @@ from app.enrichment.units import (
     parse_quantity,
 )
 
-_IDX = {"cents": 2, "pid": 7, "raw": 9, "brand": 10, "raw_categories": 12, "retailer": 14, "store": 15}
+_IDX = {"cents": 2, "confirmed": 5, "pid": 7, "raw": 9, "brand": 10, "raw_categories": 12, "retailer": 14, "store": 15}
 _FAMILY_BASE = {
     "mass": "kg",
     "vol": "L",
@@ -38,7 +39,7 @@ _FAMILY_BASE = {
     "embalagem": "embalagem",
 }
 
-_CACHE: dict[str, Any] = {"ts": 0.0, "payload": None}
+_CACHE: dict[str, Any] = {"ts": 0.0, "lines": None, "index": None, "index_json": None}
 _TTL = 300
 
 
@@ -155,6 +156,8 @@ def _generic_lines(db: Any) -> list[dict[str, Any]]:
             continue
         cents = row[_IDX["cents"]]
         if cents is None or cents <= 0:
+            continue
+        if not is_price_fresh(row[_IDX["confirmed"]]):
             continue
         listings[pid].append(
             (
@@ -342,6 +345,8 @@ def _produce_lines(db: Any) -> list[dict[str, Any]]:
         cents = row[_IDX["cents"]]
         if cents is None or cents <= 0:
             continue
+        if not is_price_fresh(row[_IDX["confirmed"]]):
+            continue
         entries.append(
             (
                 pid,
@@ -354,17 +359,103 @@ def _produce_lines(db: Any) -> list[dict[str, Any]]:
     return _group_produce(entries, pid_canon)
 
 
+def _build_search_index(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Client-ready index keyed 'department|category|form' with search terms.
+
+    Computed once per cache period (not per page request) so rendering the list
+    page never re-runs ``canonical_name`` over the whole catalog.
+    """
+    index: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        department = row.get("department") or "Açougue"
+        unit = row.get("unit") or "kg"
+        sources = []
+        for slug, info in (row.get("sources") or {}).items():
+            price = info.get("price") if isinstance(info, dict) else None
+            if price is None:
+                continue
+            sources.append(
+                {
+                    "slug": slug,
+                    "price": float(price),
+                    "store": info.get("store") if isinstance(info, dict) else None,
+                    "sample": info.get("sample") if isinstance(info, dict) else None,
+                }
+            )
+        if not sources:
+            continue
+        sources.sort(key=lambda s: s["price"])
+        # termos de busca: nome canônico genérico + específico + marca (+amostras)
+        search_parts = [row.get("label") or row["form"], row["category"], department]
+        for source in sources:
+            sample = source.get("sample")
+            if sample:
+                canonical = canonical_name(sample, department=department)
+                search_parts += [
+                    canonical.generic, canonical.specific,
+                    canonical.brand or "", canonical.size or "",
+                ]
+            search_parts.append(source.get("store") or "")
+        seen_terms: set[str] = set()
+        terms: list[str] = []
+        for part in search_parts:
+            if not part:
+                continue
+            folded = _fold(part)
+            if folded not in seen_terms:
+                seen_terms.add(folded)
+                terms.append(part)
+        key = f"{department}|{row['category']}|{row['form']}"
+        index[key] = {
+            "department": department,
+            "unit": unit,
+            "label": row.get("label") or row["form"],
+            "category": row["category"],
+            "form": row["form"],
+            "terms": " ".join(terms),
+            "sources": sources,
+        }
+    return index
+
+
+def _refresh_cache(db: Any) -> None:
+    lines = _butcher_lines(db) + _produce_lines(db) + _generic_lines(db)
+    _CACHE["lines"] = lines
+    _CACHE["index"] = _build_search_index(lines)
+    _CACHE["index_json"] = None
+    _CACHE["ts"] = time.time()
+
+
+def _fresh() -> bool:
+    return _CACHE["lines"] is not None and time.time() - _CACHE["ts"] <= _TTL
+
+
 def catalog_rows(db: Any) -> list[dict[str, Any]]:
     """All pickable lines for the shopping builder (cached)."""
-    if _CACHE["payload"] is None or time.time() - _CACHE["ts"] > _TTL:
-        payload = _butcher_lines(db) + _produce_lines(db) + _generic_lines(db)
-        _CACHE["payload"] = payload
-        _CACHE["ts"] = time.time()
-    return _CACHE["payload"]
+    if not _fresh():
+        _refresh_cache(db)
+    return _CACHE["lines"]
+
+
+def catalog_search_index(db: Any) -> dict[str, dict[str, Any]]:
+    """Client-ready search index (cached, computed once per TTL)."""
+    if not _fresh():
+        _refresh_cache(db)
+    return _CACHE["index"]
+
+
+def catalog_search_index_json(db: Any) -> str:
+    """Client-ready search index serialized to JSON (string cached per TTL)."""
+    if not _fresh():
+        _refresh_cache(db)
+    if _CACHE["index_json"] is None:
+        _CACHE["index_json"] = json.dumps(_CACHE["index"], ensure_ascii=False)
+    return _CACHE["index_json"]
 
 
 def warm_shop_catalog() -> None:
     from app.db.session import SessionLocal
 
     with SessionLocal() as db:
-        catalog_rows(db)
+        if not _fresh():
+            _refresh_cache(db)

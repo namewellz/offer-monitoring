@@ -2,6 +2,14 @@
 
 PoC local e auditavel para descobrir encartes, baixar as imagens originais, extrair ofertas com Qwen3-VL via Ollama e persistir o historico no PostgreSQL. Este Milestone 1 suporta o GoodBom Monte Mor; as interfaces de provider, fila e extracao sao genericas para os proximos supermercados.
 
+## Arquitetura V2
+
+A especificação vigente para o catálogo canônico progressivo, processamento por
+fingerprint e resolução estruturada com LLM está em
+[`docs/V2-LLM-FIRST-CANONICAL-SPEC.md`](docs/V2-LLM-FIRST-CANONICAL-SPEC.md).
+O desenho anterior de coleta, filiais e histórico por períodos permanece em
+[`docs/CATALOG-COLLECTION-AND-ENRICHMENT.md`](docs/CATALOG-COLLECTION-AND-ENRICHMENT.md).
+
 ## Requisitos
 
 - Docker Desktop com Docker Compose
@@ -65,16 +73,34 @@ docker compose exec api python -m app.cli goodbom-catalog --output /app/artifact
 
 Essa fonte usa o GraphQL público da Mercafácil e armazena preço normal, desconto, clube, atacado, estoque e a data da observação vinculados à loja de Hortolândia.
 
-O catalogo publico do Atacadao (VTEX) pode ser coletado com:
+O catalogo do Atacadao vem da API interna do app oficial ("Meu Atacadao"), que devolve, por loja
+fisica, o preco de gondola e as duas faixas que so existem no aplicativo:
 
 ```bash
-docker compose exec api python -m app.cli atacadao-catalog --output /app/artifacts/atacadao-catalog
+docker compose exec api python -m app.cli atacadao-catalog --region campinas
 ```
 
-O coletor percorre as categorias para respeitar o limite de paginacao da API e persiste cada
-SKU com EAN, codigo interno, preco de lista, preco de venda e data da observacao. Os precos e a
-disponibilidade sao confirmados pela simulacao de compra do CEP `02170-901`, canal 1, seller
-`atacadaobr60`, e vinculados a loja Atacadao Vila Maria.
+`--region vila-maria` coleta so a loja de referencia (Av. Morvan Dias de Figueiredo, 6157),
+`--region campinas` coleta as 10 lojas da regiao e `--region rmc` descobre a rede ao vivo na API
+do app. `--filial 632` restringe a lojas especificas. O coletor percorre os 18 departamentos da
+loja (`pageSize` maximo 50) e persiste cada SKU com EAN, preco de referencia (`preco`), preco com
+oferta do app (`finalPrice`) e preco com oferta + Cartao Atacadao (`finalCardPrice`). As faixas
+condicionais viram `tier_prices` com `condition="app"`.
+
+As credenciais e o processo de engenharia reversa estao em
+`docs/REVERSE-ENGINEERING-APP-API.md`; os segredos vem de `ATACADAO_APP_CLIENT_ID`,
+`ATACADAO_APP_CLIENT_SECRET`, `ATACADAO_APP_USERNAME` e `ATACADAO_APP_PASSWORD` (com os valores
+observados no app como fallback). A coleta agendada usa as 10 lojas de Campinas.
+
+O catalogo do Spani tambem e multi-loja (plataforma VIPCommerce, org 67):
+
+```bash
+docker compose exec api python -m app.cli spani-catalog --region campinas
+```
+
+`--region campinas` coleta as 3 unidades de Campinas (cd 40, 41 e 42), `--region todas` coleta as
+33 unidades da rede e `--cd 42` restringe a unidades especificas. As unidades sao descobertas na
+propria API (`/filial/1/loja/centros_distribuicoes/retiradas`), sem lista chumbada.
 
 ## Coletas agendadas e variacao de preco
 

@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 
 from app.catalog.arena import ArenaProduct
-from app.catalog.atacadao import _leaf_categories, _top_categories
+from app.catalog.vtex import leaf_categories, top_categories
 from app.catalog.resilience import collection_issue, collection_metadata, require_products
 
 ACCOUNT_URL = "https://savegnagoio.vtexcommercestable.com.br"
@@ -219,7 +219,7 @@ class SavegnagoCatalogClient:
             tree_response.raise_for_status()
             tree = tree_response.json()
             queries: list[tuple[str, str | list[str], bool]] = [
-                (f"{fq} {name}", fq, False) for fq, name in _leaf_categories(tree)
+                (f"{fq} {name}", fq, False) for fq, name in leaf_categories(tree)
             ]
             queries.extend(
                 (
@@ -227,7 +227,7 @@ class SavegnagoCatalogClient:
                     [fq, "isAvailablePerSalesChannel_1:1"],
                     False,
                 )
-                for fq, name in _top_categories(tree)
+                for fq, name in top_categories(tree)
             )
             queries.append(
                 (

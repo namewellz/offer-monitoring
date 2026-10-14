@@ -9,6 +9,7 @@ preceding period, never from persisted derived columns.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -25,6 +26,20 @@ from app.db.models_v2 import (
     SourceProductVersion,
     StoreListing,
 )
+
+# Preço exibido só é considerado válido se foi confirmado há no máximo 2 dias.
+# Cada coleta atualiza last_confirmed_at do período aberto, o que valida que o
+# preço não mudou desde a última confirmação.
+PRICE_MAX_AGE = timedelta(days=2)
+
+
+def price_fresh_cutoff() -> datetime:
+    return datetime.now(timezone.utc) - PRICE_MAX_AGE
+
+
+def is_price_fresh(confirmed_at: datetime | None) -> bool:
+    """True quando o preço foi re-confirmado recentemente (<= 2 dias)."""
+    return confirmed_at is not None and confirmed_at >= price_fresh_cutoff()
 
 
 def _money(cents: int | None) -> Decimal | None:
@@ -164,6 +179,7 @@ def _current_listings_query(
             Retailer.name,
             Retailer.slug,
             Store.name,
+            open_period.price_basis_unit,
         )
         .join(
             open_period,

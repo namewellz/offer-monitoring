@@ -7,7 +7,12 @@ from sqlalchemy import select
 
 from app.catalog.arena import ArenaCatalogClient, write_catalog
 from app.catalog.assai import AssaiCatalogClient
-from app.catalog.atacadao import AtacadaoCatalogClient
+from app.catalog.atacadao import (
+    CAMPINAS_STORES,
+    DEFAULT_STORE,
+    REGION_CITIES,
+    AtacadaoCatalogClient,
+)
 from app.catalog.davita import DavitaCatalogClient
 from app.catalog.goodbom import GoodBomCatalogClient
 from app.catalog.maxatacadista import MaxAtacadistaCatalogClient
@@ -19,6 +24,7 @@ from app.catalog.persistence import (
     persist_goodbom_catalog,
     persist_maxatacadista_catalog,
     persist_saovicente_catalog,
+    persist_spani_catalog,
     persist_savegnago_catalog,
     persist_tenda_catalog,
     reclassify_catalog_departments,
@@ -27,6 +33,7 @@ from app.catalog.saovicente import SaoVicenteCatalogClient
 from app.catalog.savegnago import SavegnagoCatalogClient
 from app.catalog.tenda import TendaCatalogClient
 from app.catalog.v2.backfill import backfill_v2
+from app.catalog.vipcommerce import SpaniCatalogClient
 from app.db.models import FlyerSource, Retailer, Store
 from app.db.session import SessionLocal
 from app.discovery.service import discover_source
@@ -82,6 +89,28 @@ def main() -> None:
     goodbom_catalog.add_argument("--output", default="artifacts/goodbom-catalog")
     atacadao_catalog = commands.add_parser("atacadao-catalog")
     atacadao_catalog.add_argument("--output", default="artifacts/atacadao-catalog")
+    atacadao_catalog.add_argument(
+        "--region",
+        choices=["vila-maria", "campinas", "rmc"],
+        default="vila-maria",
+        help=(
+            "Lojas a coletar: apenas Vila Maria (padrão), as 10 lojas da região de "
+            "Campinas, ou toda a RMC descoberta ao vivo na API do app."
+        ),
+    )
+    atacadao_catalog.add_argument(
+        "--filial",
+        type=int,
+        action="append",
+        default=[],
+        help="Coleta apenas as lojas (número da filial) indicadas. Repetível.",
+    )
+    atacadao_catalog.add_argument(
+        "--concurrency",
+        type=int,
+        default=6,
+        help="Requisições simultâneas por loja (máximo 6, padrão 6).",
+    )
     savegnago_catalog = commands.add_parser("savegnago-catalog")
     savegnago_catalog.add_argument("--output", default="artifacts/savegnago-catalog")
     davita_catalog = commands.add_parser("davitta-catalog")
@@ -92,6 +121,24 @@ def main() -> None:
     tenda_catalog.add_argument("--output", default="artifacts/tenda-catalog")
     saovicente_catalog = commands.add_parser("saovicente-catalog")
     saovicente_catalog.add_argument("--output", default="artifacts/saovicente-catalog")
+    spani_catalog = commands.add_parser("spani-catalog")
+    spani_catalog.add_argument("--output", default="artifacts/spani-catalog")
+    spani_catalog.add_argument(
+        "--region",
+        choices=["campinas", "todas"],
+        default="campinas",
+        help=(
+            "Unidades a coletar: as lojas de Campinas (padrão) ou todas as unidades "
+            "da rede descobertas na API do app."
+        ),
+    )
+    spani_catalog.add_argument(
+        "--cd",
+        type=int,
+        action="append",
+        default=[],
+        help="Coleta apenas as unidades (centro de distribuição) indicadas. Repetível.",
+    )
     max_catalog = commands.add_parser("max-atacadista-catalog")
     max_catalog.add_argument("--output", default="artifacts/max-atacadista-catalog")
     args = parser.parse_args()
@@ -131,14 +178,99 @@ def main() -> None:
         print(csv_path)
         return
     if args.command == "atacadao-catalog":
-        catalog = asyncio.run(AtacadaoCatalogClient().collect())
-        json_path, csv_path = write_catalog(catalog, Path(args.output), prefix="atacadao")
+        client = AtacadaoCatalogClient(concurrency=args.concurrency)
+        known = {store["filial"]: store for store in (DEFAULT_STORE, *CAMPINAS_STORES)}
+        if args.filial:
+            if any(filial not in known for filial in args.filial):
+                for store in asyncio.run(client.find_stores(REGION_CITIES)):
+                    known.setdefault(store["filial"], store)
+                unknown = [filial for filial in args.filial if filial not in known]
+                if unknown:
+                    raise SystemExit(f"Filial não encontrada na API do app: {unknown}")
+            stores = [known[filial] for filial in args.filial]
+        elif args.region == "campinas":
+            stores = list(CAMPINAS_STORES)
+        elif args.region == "rmc":
+            stores = asyncio.run(client.find_stores(REGION_CITIES))
+        else:
+            stores = [DEFAULT_STORE]
+        catalogs = asyncio.run(client.collect_many(stores))
+        total_skus = 0
+        total_priced = 0
+        total_available = 0
+        total_offers = 0
         with SessionLocal() as db:
-            run = persist_atacadao_catalog(db, catalog)
-        print(f"Collected {catalog['product_count']} unique SKUs")
-        print(f"Persisted catalog run {run.id} at {run.collected_at.isoformat()}")
-        print(json_path)
-        print(csv_path)
+            for index, catalog in enumerate(catalogs):
+                prefix = "atacadao" if args.region == "vila-maria" else f"atacadao-{index:02d}"
+                json_path, csv_path = write_catalog(catalog, Path(args.output), prefix=prefix)
+                run = persist_atacadao_catalog(db, catalog)
+                priced = sum(
+                    1 for product in catalog["products"] if product.get("sales_price") is not None
+                )
+                available = sum(1 for product in catalog["products"] if product.get("available"))
+                offers = sum(
+                    1 for product in catalog["products"] if product.get("tier_prices")
+                )
+                total_skus += len(catalog["products"])
+                total_priced += priced
+                total_available += available
+                total_offers += offers
+                print(
+                    f"[{catalog['store']['name']} filial {catalog['store']['filial']}] "
+                    f"{len(catalog['products'])} SKUs, {priced} com preço, "
+                    f"{available} disponíveis, {offers} com oferta app/cartão -> run {run.id}"
+                )
+                print(json_path)
+                print(csv_path)
+        print(
+            f"TOTAL {len(catalogs)} lojas: {total_skus} SKUs, "
+            f"{total_priced} com preço, {total_available} disponíveis, "
+            f"{total_offers} com oferta app/cartão"
+        )
+        return
+    if args.command == "spani-catalog":
+        client = SpaniCatalogClient()
+        if args.cd:
+            known = {
+                unit["centro_distribuicao"]: unit
+                for unit in asyncio.run(client.list_centros_distribuicao())
+            }
+            missing = [cd for cd in args.cd if str(cd) not in known]
+            if missing:
+                raise SystemExit(f"Centro de distribuição não encontrado: {missing}")
+            units = [known[str(cd)] for cd in args.cd]
+        elif args.region == "campinas":
+            units = asyncio.run(client.units_for_city("Campinas"))
+        else:
+            units = asyncio.run(client.list_centros_distribuicao())
+        catalogs = asyncio.run(client.collect_many(units))
+        total_skus = 0
+        total_priced = 0
+        total_offers = 0
+        with SessionLocal() as db:
+            for index, catalog in enumerate(catalogs):
+                json_path, csv_path = write_catalog(
+                    catalog, Path(args.output), prefix=f"spani-{index:02d}"
+                )
+                run = persist_spani_catalog(db, catalog)
+                priced = sum(
+                    1 for product in catalog["products"] if product.get("sales_price") is not None
+                )
+                offers = sum(1 for product in catalog["products"] if product.get("offer_tags"))
+                total_skus += len(catalog["products"])
+                total_priced += priced
+                total_offers += offers
+                print(
+                    f"[{catalog['store']['name']} cd "
+                    f"{catalog['store']['centro_distribuicao']}] {len(catalog['products'])} SKUs, "
+                    f"{priced} com preço, {offers} em oferta -> run {run.id}"
+                )
+                print(json_path)
+                print(csv_path)
+        print(
+            f"TOTAL {len(catalogs)} lojas: {total_skus} SKUs, {total_priced} com preço, "
+            f"{total_offers} em oferta"
+        )
         return
     if args.command == "savegnago-catalog":
         catalog = asyncio.run(SavegnagoCatalogClient().collect())

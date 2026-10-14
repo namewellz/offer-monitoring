@@ -14,7 +14,7 @@ from typing import Any
 
 from sqlalchemy import select
 
-from app.catalog.v2.read import current_listings
+from app.catalog.v2.read import current_listings, is_price_fresh
 from app.classification.canonical import canonical_map
 from app.db.models_v2 import LlmClassification
 from app.enrichment.units import (
@@ -26,6 +26,7 @@ from app.enrichment.units import (
 
 _IDX = {
     "cents": 2,
+    "confirmed": 5,
     "pid": 7,
     "raw": 9,
     "retailer": 14,
@@ -103,6 +104,8 @@ def _compute(db: Any, department: str) -> dict[str, Any]:
             continue
         cents = row[_IDX["cents"]]
         if cents is None or cents <= 0:
+            continue
+        if not is_price_fresh(row[_IDX["confirmed"]]):
             continue
         listings_by_pid[pid].append(
             (row[_IDX["retailer"]], row[_IDX["store"]], cents / 100.0, row[_IDX["raw"]] or "")

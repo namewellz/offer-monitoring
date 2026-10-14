@@ -1,0 +1,9 @@
+{"source_product_id": "sp:cerveja-heineken-600", "action": "MATCH_EXACT", "canonical_id": "t:heineken-600", "relation": "EXACT"}
+{"source_product_id": "sp:cerveja-brahma-dm-269", "action": "MATCH_EXACT", "canonical_id": "t:brahma-dm-269", "relation": "EXACT"}
+{"source_product_id": "sp:cerveja-bud-350", "action": "MATCH_EXACT", "canonical_id": "t:bud-350", "relation": "EXACT"}
+{"source_product_id": "sp:cerveja-bud-zero-350", "action": "MATCH_EXACT", "canonical_id": "t:bud-zero-350", "relation": "EXACT"}
+{"source_product_id": "sp:cerveja-amstel-350", "action": "MATCH_EXACT", "canonical_id": "t:amstel-350", "relation": "EXACT"}
+{"source_product_id": "sp:arroz-camil-t1-5kg", "action": "MATCH_EXACT", "canonical_id": "t:camil-t1-5kg", "relation": "EXACT"}
+{"source_product_id": "sp:arroz-camil-parb-1kg", "action": "MATCH_EXACT", "canonical_id": "t:camil-parb-1kg", "relation": "EXACT"}
+{"source_product_id": "sp:arroz-camil-lf-t1-5kg", "action": "MATCH_EXACT", "canonical_id": "t:camil-t1-5kg", "relation": "EXACT"}
+{"source_product_id": "sp:arroz-prato-fino-5kg", "action": "MATCH_EXACT", "canonical_id": "t:prato-fino-t1-5kg", "relation": "EXACT"}

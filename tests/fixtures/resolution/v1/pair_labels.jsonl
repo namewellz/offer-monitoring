@@ -1,0 +1,9 @@
+{"left_id": "t:bud-350", "right_id": "t:bud-zero-350", "label": "CONCEPT_RELATED", "note": "mesma marca/tamanho, variante diferente (zero)"}
+{"left_id": "t:brahma-dm-269", "right_id": "t:bud-350", "label": "SUBSTITUTE", "note": "cervejas de marcas diferentes"}
+{"left_id": "t:camil-t1-5kg", "right_id": "t:prato-fino-t1-5kg", "label": "SUBSTITUTE", "note": "arroz tipo 1 5 kg de marcas diferentes"}
+{"left_id": "t:camil-t1-5kg", "right_id": "t:camil-parb-1kg", "label": "CONCEPT_RELATED", "note": "mesma marca, processamento e tamanho diferentes"}
+{"left_id": "t:heineken-600", "right_id": "t:bud-350", "label": "CONCEPT_RELATED", "note": "cervejas de marcas e tamanhos diferentes"}
+{"left_id": "t:camil-t1-5kg", "right_id": "t:heineken-600", "label": "NOT_COMPARABLE", "note": "arroz vs cerveja"}
+{"left_id": "v:cerveja-pilsen", "right_id": "t:heineken-600", "label": "CONCEPT_RELATED", "note": "a variante contém o item comercial"}
+{"left_id": "t:amstel-350", "right_id": "t:bud-350", "label": "SUBSTITUTE", "note": "mesma família/tamanho, marcas diferentes"}
+{"left_id": "v:arroz-tipo-1", "right_id": "t:camil-t1-5kg", "label": "CONCEPT_RELATED", "note": "a variante contém o item comercial"}
