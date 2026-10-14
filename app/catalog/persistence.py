@@ -52,6 +52,35 @@ def reclassify_catalog_departments(db: Session) -> int:
     return changed
 
 
+def previous_observations_query(*, retailer_id, store_id, observed_at):
+    """Latest observation per product of the retailer, for price-change detection.
+
+    Built as a JOIN on ``catalog_products`` so the bind-parameter count stays
+    constant (three) no matter how many SKUs the retailer has. An earlier version
+    used ``CatalogPriceObservation.product_id.in_(product_ids)`` with every product
+    of the retailer in the list: past ~65k SKUs (Atacadão with all Campinas
+    branches) the statement used to fail with
+    ``number of parameters must be between 0 and 65535`` and the whole catalogue
+    insert aborted.
+    """
+    query = (
+        select(CatalogPriceObservation)
+        .join(CatalogProduct, CatalogProduct.id == CatalogPriceObservation.product_id)
+        .where(
+            CatalogProduct.retailer_id == retailer_id,
+            CatalogPriceObservation.observed_at < observed_at,
+        )
+        .order_by(
+            CatalogPriceObservation.product_id,
+            CatalogPriceObservation.observed_at.desc(),
+        )
+        .distinct(CatalogPriceObservation.product_id)
+    )
+    if store_id is None:
+        return query.where(CatalogPriceObservation.store_id.is_(None))
+    return query.where(CatalogPriceObservation.store_id == store_id)
+
+
 def _persist_catalog(
     db: Session,
     catalog: dict[str, Any],
@@ -113,28 +142,19 @@ def _persist_catalog(
             select(CatalogProduct).where(CatalogProduct.retailer_id == retailer.id)
         ).all()
     }
-    product_ids = [product.id for product in existing_products.values()]
-    previous_observations = {}
-    if product_ids:
-        previous_query = (
-            select(CatalogPriceObservation)
-            .where(
-                CatalogPriceObservation.product_id.in_(product_ids),
-                CatalogPriceObservation.observed_at < observed_at,
+    # The previous observation of every product of the retailer is looked up with a
+    # JOIN, not with `product_id IN (...)`. A retailer with tens of thousands of
+    # SKUs (Atacadão passes 65k once the Campinas branches are in) blows past the
+    # 65.535 bind-parameter limit of the PostgreSQL wire protocol and the whole
+    # insert aborts with `number of parameters must be between 0 and 65535`.
+    previous_observations = {
+        observation.product_id: observation
+        for observation in db.scalars(
+            previous_observations_query(
+                retailer_id=retailer.id, store_id=store.id if store else None, observed_at=observed_at
             )
-            .order_by(
-                CatalogPriceObservation.product_id,
-                CatalogPriceObservation.observed_at.desc(),
-            )
-            .distinct(CatalogPriceObservation.product_id)
-        )
-        if store is None:
-            previous_query = previous_query.where(CatalogPriceObservation.store_id.is_(None))
-        else:
-            previous_query = previous_query.where(CatalogPriceObservation.store_id == store.id)
-        previous_observations = {
-            observation.product_id: observation for observation in db.scalars(previous_query).all()
-        }
+        ).all()
+    }
     for raw in products:
         source_categories = raw.get("categories") or []
         department = canonical_department(source_categories, raw["name"])
