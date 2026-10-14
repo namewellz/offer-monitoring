@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     extraction_mode: str = "tiles"
     tile_overlap_percent: int = 20
     max_asset_size_mb: int = 50
-    job_lock_timeout_seconds: int = 1800
+    job_lock_timeout_seconds: int = 5400
     log_level: str = "INFO"
 
 

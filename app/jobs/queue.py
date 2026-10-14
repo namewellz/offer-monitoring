@@ -43,7 +43,10 @@ def enqueue_catalog_collection(retailer_slug: str) -> str:
         job = queue.enqueue(
             "app.jobs.tasks.run_catalog_collection",
             retailer_slug,
-            job_timeout="30m",
+            # A collector that walks every branch (Atacadao Campinas = 10 lojas,
+            # Spani Campinas = 3) leva ~25 min; o teto antigo de 30 min nao tinha
+            # margem e o lock do worker expirava junto.
+            job_timeout="90m",
             result_ttl=86400,
             failure_ttl=86400,
         )
