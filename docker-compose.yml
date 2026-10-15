@@ -45,6 +45,7 @@ services:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
   scheduler:
+    restart: unless-stopped
     build: .
     env_file: .env
     environment:
