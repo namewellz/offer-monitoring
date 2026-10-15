@@ -1,0 +1,102 @@
+[
+ {
+  "store": "GoodBom Monte Mor",
+  "field": "curation",
+  "notes": [
+   "GoodBom Monte Mor: coletado com CEP de referencia de Hortolandia",
+   "bairro sem fonte confiavel (CEP real desconhecido)"
+  ]
+ },
+ {
+  "store": "GoodBom Hortolândia",
+  "field": "curation",
+  "notes": [
+   "bairro sem fonte confiavel (CEP real desconhecido)"
+  ]
+ },
+ {
+  "store": "Loja 04 – Monte Mor",
+  "field": "curation",
+  "notes": [
+   "bairro sem fonte confiavel (CEP real desconhecido)"
+  ]
+ },
+ {
+  "store": "Assaí Hortolândia – Loja 175",
+  "field": "curation",
+  "notes": [
+   "bairro sem fonte confiavel (CEP real desconhecido)"
+  ]
+ },
+ {
+  "store": "Tenda Hortolândia",
+  "field": "curation",
+  "notes": [
+   "bairro sem fonte confiavel (CEP real desconhecido)"
+  ]
+ },
+ {
+  "store": "São Vicente Hortolândia",
+  "field": "curation",
+  "notes": [
+   "bairro sem fonte confiavel (CEP real desconhecido)"
+  ]
+ },
+ {
+  "store": "Max Atacadista Campinas",
+  "field": "curation",
+  "notes": [
+   "Max: referencia regional; qual loja fisica real?",
+   "bairro sem fonte confiavel (CEP real desconhecido)"
+  ]
+ },
+ {
+  "store": "Spani Campinas 3",
+  "field": "curation",
+  "notes": [
+   "Spani: loja fisica ou CD de e-commerce (centro_distribuicao 42)?"
+  ]
+ },
+ {
+  "store": "Pague Menos Hortolândia (Loja 16 - Rosolen)",
+  "field": "curation",
+  "notes": [
+   "bairro sem fonte confiavel (CEP real desconhecido)"
+  ]
+ },
+ {
+  "store": "Spani Campinas 1",
+  "field": "curation",
+  "notes": [
+   "Spani: loja fisica ou CD de e-commerce (centro_distribuicao 40)?"
+  ]
+ },
+ {
+  "store": "Spani Campinas 2",
+  "field": "curation",
+  "notes": [
+   "Spani: loja fisica ou CD de e-commerce (centro_distribuicao 41)?"
+  ]
+ },
+ {
+  "store": "Atacadão Americana",
+  "field": "bairro",
+  "atacadao-app": "Vila Bertini",
+  "viacep": "São Vito",
+  "chosen": "Vila Bertini"
+ },
+ {
+  "store": "Atacadão Indaiatuba",
+  "field": "bairro",
+  "atacadao-app": "Recreio Campestre Joia",
+  "viacep": "Itaici",
+  "chosen": "Recreio Campestre Joia"
+ },
+ {
+  "store": "Atacadão Itu",
+  "field": "bairro",
+  "atacadao-app": "Brasil",
+  "viacep": "São Luiz",
+  "chosen": "Brasil"
+ }
+]

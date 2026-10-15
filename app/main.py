@@ -151,6 +151,64 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Offer Monitoring", version="0.1.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def store_filter_middleware(request: Request, call_next):
+    """Filtros de loja (rede/cidade/bairro/tipo/region) via query string + rotulo curto no mobile."""
+    from app.stores import CURRENT_FILTER, StoreFilter, label_assets
+
+    token = CURRENT_FILTER.set(StoreFilter.from_params(request.query_params))
+    try:
+        response = await call_next(request)
+        path = request.url.path
+        if (
+            path.startswith(("/catalog", "/shopping-lists"))
+            and response.headers.get("content-type", "").startswith("text/html")
+        ):
+            body = b"".join([chunk async for chunk in response.body_iterator])
+            try:
+                from app.db.session import SessionLocal
+
+                with SessionLocal() as db:
+                    assets = label_assets(db).encode("utf-8")
+                marker = b"</body>"
+                body = body.replace(marker, assets + marker, 1) if marker in body else body + assets
+            except Exception:  # noqa: BLE001 - rotulo curto e opcional
+                pass
+            headers = {k: v for k, v in response.headers.items() if k.lower() != "content-length"}
+            return Response(content=body, status_code=response.status_code, headers=headers,
+                            media_type=response.media_type)
+        return response
+    finally:
+        CURRENT_FILTER.reset(token)
+
+
+@app.get("/api/stores")
+def api_stores(
+    rede: str | None = None,
+    cidade: str | None = None,
+    bairro: str | None = None,
+    tipo: str | None = None,
+    region: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Lojas com rotulos de exibicao e filtros (padrao oculta region=fora; region=all mostra tudo).
+
+    Nunca expoe CEP.
+    """
+    from app.stores import StoreFilter, list_stores
+
+    flt = StoreFilter.from_params(
+        {"rede": rede, "cidade": cidade, "bairro": bairro, "tipo": tipo, "region": region}
+    )
+    stores = list_stores(db, flt)
+    facets = {
+        name: sorted({s[key] for s in stores if s[key]})
+        for name, key in (("rede", "rede"), ("cidade", "cidade"), ("bairro", "bairro"),
+                          ("tipo", "tipo"), ("region", "region"))
+    }
+    return {"count": len(stores), "stores": stores, "facets": facets}
 app.include_router(annotation_router)
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
@@ -503,7 +561,7 @@ def catalog_price_change_results(
                 "source_categories": catalog_product.categories,
                 "retailer": catalog_retailer.name,
                 "retailer_slug": catalog_retailer.slug,
-                "store": catalog_store.name if catalog_store else None,
+                "store": (catalog_store.display_name or catalog_store.name) if catalog_store else None,
                 "observed_at": observation.observed_at,
                 "previous_price": observation.previous_sales_price,
                 "regular_price": observation.regular_price,
@@ -568,7 +626,7 @@ def catalog_price_history_results(
             "source_categories": catalog_product.categories,
             "retailer": catalog_retailer.name,
             "retailer_slug": catalog_retailer.slug,
-            "store": catalog_store.name if catalog_store else None,
+            "store": (catalog_store.display_name or catalog_store.name) if catalog_store else None,
             "run_id": run.id,
             "run_status": run.status,
             "observed_at": observation.observed_at,
@@ -655,7 +713,7 @@ def offer_results(
                 "offer_price": offer_price,
                 "minimum_quantity": conditional.minimum_quantity if conditional else None,
                 "supermarket": retailer.name,
-                "store": store.name,
+                "store": store.display_name or store.name,
                 "city": store.city,
                 "valid_from": flyer.valid_from,
                 "valid_until": flyer.valid_until,

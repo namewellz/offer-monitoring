@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.catalog.v2.read import current_listings, is_price_fresh
+from app.stores import CURRENT_FILTER
 from app.classification.canonical import canonical_map, seed_categories
 from app.db.models_v2 import LlmClassification
 from app.enrichment.resolver import MeatItem
@@ -24,7 +25,7 @@ _IDX = {
     "basis": 16,
 }
 
-_CACHE: dict[str, Any] = {"ts": 0.0, "payload": None, "use_llm": True}
+_CACHE: dict[str, Any] = {"ts": 0.0, "payload": None, "use_llm": True, "filter": None}
 
 # Preços trocam a cada coleta agendada; 5min evita recálculo de ~13s a cada
 # requisição isolada sem sacrificar frescor (o warm-up mantém quente).
@@ -189,10 +190,12 @@ def butcher_comparison(
         _CACHE["payload"] is None
         or time.time() - _CACHE["ts"] > _TTL
         or _CACHE["use_llm"] != use_llm
+        or _CACHE["filter"] != CURRENT_FILTER.get().key
     ):
         items, groups, info = _compute(db, use_llm)
         _CACHE["payload"] = {"items": items, "groups": groups, "info": info}
         _CACHE["use_llm"] = use_llm
+        _CACHE["filter"] = CURRENT_FILTER.get().key
         _CACHE["ts"] = time.time()
     payload = _CACHE["payload"]
     return {

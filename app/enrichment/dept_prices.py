@@ -15,6 +15,7 @@ from typing import Any
 from sqlalchemy import select
 
 from app.catalog.v2.read import current_listings, is_price_fresh
+from app.stores import CURRENT_FILTER
 from app.classification.canonical import canonical_map
 from app.db.models_v2 import LlmClassification
 from app.enrichment.units import (
@@ -57,7 +58,7 @@ def dept_price_rows(db: Any, department: str) -> dict[str, Any]:
     """Price rows per (canonical category, unit family) for a department."""
     import time
 
-    cache_key = f"{department}|llm"
+    cache_key = f"{department}|llm|{CURRENT_FILTER.get().key}"
     if _CACHE["key"] != cache_key or _CACHE["payload"] is None or time.time() - _CACHE["ts"] > _TTL:
         payload = _compute(db, department)
         _CACHE["key"] = cache_key

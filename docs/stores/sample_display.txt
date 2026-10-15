@@ -1,0 +1,27 @@
+campinas | Assaí Atacadista - Hortolândia - Loja | Assaí Atacadista Hortolândia | gap
+campinas | Atacadão - Americana - Loja - Vila Bertini | Atacadão Americana | app (viacep: São Vito)
+campinas | Atacadão - Campinas - Loja - Jardim Aurélia | Atacadão Dunlop 24h (Jardim Aurélia) | app=viacep
+campinas | Atacadão - Campinas - Loja - Jardim Santa Genebra | Atacadão Dom Pedro (Jardim Santa Genebra) | app=viacep
+campinas | Atacadão - Campinas - Loja - Jardim Yeda | Atacadão Jd. Yeda (Jardim Yeda) | app=viacep
+campinas | Atacadão - Hortolândia - Loja - Parque São Miguel | Atacadão Hortolândia | app=viacep
+campinas | Atacadão - Indaiatuba - Loja - Recreio Campestre Joia | Atacadão Indaiatuba | app (viacep: Itaici)
+campinas | Atacadão - Itu - Loja - Brasil | Atacadão Itu | app (viacep: São Luiz)
+campinas | Atacadão - Jundiaí - Loja - Jardim Liberdade | Atacadão Jundiaí | app=viacep
+campinas | Atacadão - Santa Bárbara d'Oeste - Loja - Loteamento Industrial | Atacadão Santa Bárbara d'Oeste | app=viacep
+campinas | Atacadão - Sumaré - Loja - Chácara Monte Alegre | Atacadão Sumaré | app=viacep
+campinas | Dalben - Campinas - Loja - Taquaral | Dalben Campinas | viacep
+campinas | Davitta Supermercados - Monte Mor - Loja | Davitta Supermercados Monte Mor | gap
+campinas | GoodBom - Hortolândia - Loja | GoodBom Hortolândia | gap
+campinas | GoodBom - Monte Mor - Loja | GoodBom Monte Mor | gap
+campinas | Max Atacadista - Campinas - Loja | Max Atacadista Campinas | gap
+campinas | Pague Menos - Hortolândia - Loja | Pague Menos Hortolândia | gap
+campinas | Savegnago - Hortolândia - Loja - Vila São Francisco | Savegnago Hortolândia | viacep
+campinas | Spani - Campinas - Loja - Alphaville Dom Pedro | Spani Campinas (Alphaville Dom Pedro) | viacep
+campinas | Spani - Campinas - Loja - Jardim Paulicéia | Spani Campinas (Jardim Paulicéia) | viacep
+campinas | Spani - Campinas - Loja - Parque Universitário de Viracopos | Spani Campinas (Parque Universitário de Viracopos) | viacep
+campinas | São Vicente - Hortolândia - Loja | São Vicente Hortolândia | gap
+campinas | Tenda Atacado - Hortolândia - Loja | Tenda Atacado Hortolândia | gap
+fora | Atacadão - São Paulo - Loja - Vila Maria | Atacadão São Paulo | manual
+online | Arena Atacado - Online | Arena Atacado Nacional | -
+online | Atacadão - Online | Atacadão Nacional | -
+online | Savegnago - Online | Savegnago Nacional | -

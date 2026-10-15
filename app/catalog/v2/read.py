@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, aliased
 
 from app.catalog.taxonomy import canonical_department
 from app.db.models import Retailer, Store
+from app.stores import apply_store_filter, store_label
 from app.db.models_v2 import (
     CatalogSource,
     CollectionTarget,
@@ -178,7 +179,7 @@ def _current_listings_query(
             SourceProductVersion.raw_categories,
             Retailer.name,
             Retailer.slug,
-            Store.name,
+            store_label(Store),
             open_period.price_basis_unit,
         )
         .join(
@@ -206,6 +207,7 @@ def _current_listings_query(
         .join(Store, Store.id == CollectionTarget.store_id)
         .where(StoreListing.active.is_(True))
     )
+    query = apply_store_filter(query, Store, Retailer)
     if product:
         query = query.where(SourceProductVersion.raw_name.ilike(f"%{product}%"))
     if retailer:
@@ -240,7 +242,7 @@ def latest_runs(db: Session) -> list[dict[str, Any]]:
     return [
         {
             "retailer": retailer.name,
-            "store": store.name,
+            "store": store.display_name or store.name,
             "product_count": run.items_seen,
             "collected_at": run.observed_at,
         }
@@ -266,6 +268,7 @@ def row_result(row: tuple[Any, ...], department: str | None = None) -> dict[str,
         retailer_name,
         retailer_slug,
         store_name,
+        *_extra,  # price_basis_unit (17th column) is not used here
     ) = row
     regular = _money(regular_cents)
     current = _money(effective_cents)
@@ -346,7 +349,7 @@ def _filtered_listings_query(
             SourceProductVersion.raw_categories,
             Retailer.name,
             Retailer.slug,
-            Store.name,
+            store_label(Store),
         )
         .join(
             open_period,
@@ -373,6 +376,7 @@ def _filtered_listings_query(
         .join(Store, Store.id == CollectionTarget.store_id)
         .where(StoreListing.active.is_(True))
     )
+    query = apply_store_filter(query, Store, Retailer)
     if product:
         query = query.where(SourceProductVersion.raw_name.ilike(f"%{product}%"))
     if retailer:
@@ -533,7 +537,7 @@ def price_history_results(
                 "source_categories": version.raw_categories,
                 "retailer": catalog_retailer.name,
                 "retailer_slug": catalog_retailer.slug,
-                "store": store.name,
+                "store": store.display_name or store.name,
                 "period_id": period.id,
                 "version": period.version,
                 "started_at": period.started_at,

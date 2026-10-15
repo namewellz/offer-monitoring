@@ -63,6 +63,20 @@ class Store(IdModel, Base):
     city: Mapped[str] = mapped_column(String(120))
     state: Mapped[str | None] = mapped_column(String(2))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # enriquecimento (0015): exibicao/filtros. CEP so interno, nunca na UI.
+    store_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    store_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    neighborhood: Mapped[str | None] = mapped_column(Text, nullable=True)
+    address_line: Mapped[str | None] = mapped_column(Text, nullable=True)
+    postal_code: Mapped[str | None] = mapped_column(String(9), nullable=True)
+    latitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6), nullable=True)
+    longitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6), nullable=True)
+    region_bucket: Mapped[str | None] = mapped_column(Text, nullable=True)
+    display_label: Mapped[str | None] = mapped_column(Text, nullable=True)
+    display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    short_label: Mapped[str | None] = mapped_column(Text, nullable=True)
+    field_sources: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    curated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class CatalogRun(IdModel, Base):

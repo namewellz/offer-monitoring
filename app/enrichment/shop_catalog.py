@@ -19,6 +19,7 @@ from typing import Any
 from sqlalchemy import select
 
 from app.catalog.v2.read import current_listings, is_price_fresh
+from app.stores import CURRENT_FILTER
 from app.db.models_v2 import LlmCategoryLabel, LlmClassification
 from app.enrichment.butcher import butcher_comparison
 from app.enrichment.canonical_name import _fold, canonical_name
@@ -39,7 +40,7 @@ _FAMILY_BASE = {
     "embalagem": "embalagem",
 }
 
-_CACHE: dict[str, Any] = {"ts": 0.0, "lines": None, "index": None, "index_json": None}
+_CACHE: dict[str, Any] = {"ts": 0.0, "lines": None, "index": None, "index_json": None, "filter": None}
 _TTL = 300
 
 
@@ -424,10 +425,15 @@ def _refresh_cache(db: Any) -> None:
     _CACHE["index"] = _build_search_index(lines)
     _CACHE["index_json"] = None
     _CACHE["ts"] = time.time()
+    _CACHE["filter"] = CURRENT_FILTER.get().key
 
 
 def _fresh() -> bool:
-    return _CACHE["lines"] is not None and time.time() - _CACHE["ts"] <= _TTL
+    return (
+        _CACHE["lines"] is not None
+        and time.time() - _CACHE["ts"] <= _TTL
+        and _CACHE["filter"] == CURRENT_FILTER.get().key
+    )
 
 
 def catalog_rows(db: Any) -> list[dict[str, Any]]:

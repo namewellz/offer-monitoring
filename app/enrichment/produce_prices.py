@@ -21,6 +21,7 @@ from typing import Any
 from sqlalchemy import select
 
 from app.catalog.v2.read import current_listings, is_price_fresh
+from app.stores import CURRENT_FILTER
 from app.db.models_v2 import LlmClassification
 from app.enrichment.produce import normalize_produce
 from app.enrichment.units import PACKAGE_CATEGORIES
@@ -200,7 +201,7 @@ def _aggregate(entries: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int
 
 def produce_price_rows(db: Any, department: str = "Hortifruti") -> dict[str, Any]:
     """Price rows grouped by canonical produce identity for a department."""
-    cache_key = f"{department}|produce"
+    cache_key = f"{department}|produce|{CURRENT_FILTER.get().key}"
     if _CACHE["key"] != cache_key or _CACHE["payload"] is None or time.time() - _CACHE["ts"] > _TTL:
         payload = _compute(db, department)
         _CACHE["key"] = cache_key
