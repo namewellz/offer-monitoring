@@ -238,6 +238,7 @@ def latest_runs(db: Session) -> list[dict[str, Any]]:
         .join(Retailer, Retailer.id == CatalogSource.retailer_id)
         .join(Store, Store.id == CollectionTarget.store_id)
         .where(CollectionRun.id.in_(select(ranked.c.run_id).where(ranked.c.position == 1)))
+        .where(Store.active.is_(True), CollectionTarget.active.is_(True))
     ).all()
     return [
         {

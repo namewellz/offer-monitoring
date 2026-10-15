@@ -124,7 +124,9 @@ def label_map(db: Session) -> dict[str, str]:
         from app.db.models import Store
 
         rows = db.execute(
-            select(Store.display_name, Store.short_label).where(Store.display_name.is_not(None))
+            select(Store.display_name, Store.short_label).where(
+                Store.display_name.is_not(None), Store.active.is_(True)
+            )
         ).all()
         _LABELS["map"] = {d: s for d, s in rows if d and s and d != s}
         _LABELS["ts"] = time.time()
