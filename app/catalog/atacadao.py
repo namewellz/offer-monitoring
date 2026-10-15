@@ -26,9 +26,8 @@ Secrets come from the environment so deployments never carry them in source:
     ATACADAO_APP_BASE_URL, ATACADAO_APP_CLIENT_ID, ATACADAO_APP_CLIENT_SECRET,
     ATACADAO_APP_USERNAME, ATACADAO_APP_PASSWORD
 
-The defaults below are the values observed in the app traffic. They are kept for
-developer convenience and must be rotated into a secret manager before any
-deployment that matters.
+There are no defaults: if any credential is missing, the first token request
+raises ``AtacadaoCredentialsMissing`` naming the missing variables.
 """
 from __future__ import annotations
 
@@ -51,12 +50,37 @@ BASE_URL = os.environ.get(
 TOKEN_PATH = "/infosec/auth/v1/protocol/openid-connect/token"
 BACKOFFICE = "/mobile/ofertas-backoffice/v1"
 
-CLIENT_ID = os.environ.get("ATACADAO_APP_CLIENT_ID", "OfertaMobile-TokenAuth")
-CLIENT_SECRET = os.environ.get(
-    "ATACADAO_APP_CLIENT_SECRET", "CI4hKA5gdaXjDLm52Mz68pXOhIhiUvNA"
+CLIENT_ID = os.environ.get("ATACADAO_APP_CLIENT_ID", "").strip()
+CLIENT_SECRET = os.environ.get("ATACADAO_APP_CLIENT_SECRET", "").strip()
+USERNAME = os.environ.get("ATACADAO_APP_USERNAME", "").strip()
+PASSWORD = os.environ.get("ATACADAO_APP_PASSWORD", "").strip()
+
+_REQUIRED_ENV = (
+    "ATACADAO_APP_CLIENT_ID",
+    "ATACADAO_APP_CLIENT_SECRET",
+    "ATACADAO_APP_USERNAME",
+    "ATACADAO_APP_PASSWORD",
 )
-USERNAME = os.environ.get("ATACADAO_APP_USERNAME", "kcc-ofertas-externo")
-PASSWORD = os.environ.get("ATACADAO_APP_PASSWORD", "WUzN!r2Jrr!8BTFteoW3J")
+
+
+class AtacadaoCredentialsMissing(RuntimeError):
+    """Raised when the Atacadao app credentials are not provided via env."""
+
+
+def _check_credentials() -> None:
+    missing = [
+        name
+        for name, value in zip(
+            _REQUIRED_ENV, (CLIENT_ID, CLIENT_SECRET, USERNAME, PASSWORD)
+        )
+        if not value
+    ]
+    if missing:
+        raise AtacadaoCredentialsMissing(
+            "Atacadao app credentials missing from environment: "
+            + ", ".join(missing)
+            + " (set them in .env.production on the host; see .env.production.example)"
+        )
 
 # The app's own User-Agent; the gateway is friendlier to it than to a bare client.
 APP_UA = "Dart/3.10 (dart:io)"
@@ -66,16 +90,6 @@ APP_UA = "Dart/3.10 (dart:io)"
 PAGE_SIZE = 50
 MAX_CONCURRENCY = 6
 TOKEN_SAFETY_MARGIN = 120  # seconds; renew before the 3600 s token actually expires
-
-DEFAULT_STORE: dict[str, Any] = {
-    "name": "Atacadão Vila Maria",
-    "filial": 60,
-    "city": "São Paulo",
-    "state": "SP",
-    "postal_code": "02170-901",
-    "address": "Avenida Morvan Dias de Figueiredo, 6157",
-    "seller": "atacadaobr60",
-}
 
 # Atacadão branches around Campinas (RMC). Every entry is a physical store and
 # the `filial` value is the store number used by the app. The list includes the
@@ -173,6 +187,32 @@ CAMPINAS_STORES: list[dict[str, Any]] = [
         "seller": "atacadaobr736",
     },
 ]
+
+# Allowlist explicita: SO estas filiais (regiao de Campinas) podem ser coletadas.
+# Qualquer outra loja (ex.: Vila Maria/SP capital, filial 60) e recusada com erro;
+# nao existe mais loja "padrao" de fallback.
+ALLOWED_FILIAIS: frozenset[int] = frozenset(store["filial"] for store in CAMPINAS_STORES)
+
+
+class StoreNotAllowed(ValueError):
+    """Raised when a store outside the Campinas-region allowlist is requested."""
+
+
+def ensure_allowed(stores: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    stores = list(stores)
+    if not stores:
+        raise StoreNotAllowed("nenhuma loja Atacadao selecionada para coleta")
+    rejected = [
+        f"{store.get('filial')} ({store.get('name')})"
+        for store in stores
+        if store.get("filial") not in ALLOWED_FILIAIS
+    ]
+    if rejected:
+        raise StoreNotAllowed(
+            "lojas fora da allowlist da regiao de Campinas: " + ", ".join(rejected)
+        )
+    return stores
+
 
 # Cities used by `atacadao-catalog --region rmc`: the collector asks the app
 # which branches exist instead of relying on a hardcoded list.
@@ -339,6 +379,7 @@ class AtacadaoCatalogClient:
         async with self._token_lock:
             if self._token and time.time() < self._token_expires_at:
                 return self._token
+            _check_credentials()
             client = self.client or self._make_client()
             try:
                 response = await client.post(
@@ -577,6 +618,7 @@ class AtacadaoCatalogClient:
         observation order aborts the run. Raising ``store_concurrency`` is still
         supported: the returned list is sorted by ``collected_at`` either way.
         """
+        stores = ensure_allowed(stores)
         owns_client = self.client is None
         client = self.client or self._make_client()
         try:
@@ -608,14 +650,15 @@ class AtacadaoCatalogClient:
                 await client.aclose()
 
     async def collect(self) -> dict[str, Any]:
-        return (await self.collect_many([DEFAULT_STORE]))[0]
+        raise StoreNotAllowed(
+            "coleta de loja unica desativada (antigo padrao Vila Maria); use collect_all()"
+        )
 
     async def collect_all(self) -> list[dict[str, Any]]:
         """Collect every branch of the Campinas region, one catalog each.
 
         Used by the scheduled collector: ``app/jobs/tasks.py`` prefers
-        ``collect_all`` when a collector provides it. The national reference
-        branch (Vila Maria) is *not* part of this set — it stays available
-        through ``collect()`` and through ``atacadao-catalog --region vila-maria``.
+        ``collect_all`` when a collector provides it. Only ``ALLOWED_FILIAIS``
+        are ever collected; Vila Maria (SP capital) is no longer supported.
         """
         return await self.collect_many(list(CAMPINAS_STORES))

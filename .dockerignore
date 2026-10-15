@@ -9,3 +9,17 @@ backup
 backups
 data
 outputs
+
+# nunca levar segredos/backups/caches locais para a imagem
+.env.*
+!.env.example
+!.env.production.example
+**/*.bak
+**/*.bak-*
+**/__pycache__
+**/*.pyc
+.venv
+**/capture
+**/token_requests*.jsonl
+**/flows*.jsonl
+**/*.har

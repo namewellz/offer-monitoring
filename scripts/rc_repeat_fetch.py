@@ -7,6 +7,7 @@ Firebase Installation ID lands in a different bucket and the parameter shows up.
 """
 from __future__ import annotations
 
+import os
 import json
 import secrets
 import sys
@@ -15,7 +16,14 @@ import urllib.request
 
 PROJECT = "atacadao-b6521"
 APP_ID = "1:579536695495:android:3af4b608ce65ef651a4ee2"
-API_KEY = "AIzaSyChy2c53_XP1jN6NGS3Qoi1Jv0GG7J_A90"
+def _require_env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        sys.exit(f"{name} is not set (see .env.production.example)")
+    return value
+
+
+API_KEY = _require_env("ATACADAO_FIREBASE_API_KEY")
 PACKAGE = "br.com.atacadao.b2c.app"
 CERT_SHA1 = "97B1257A29CBA1049C4B1F2D4DE3DBE5B1262040"
 APP_VERSION = "13.429.1"

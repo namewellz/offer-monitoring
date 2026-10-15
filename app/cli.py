@@ -8,8 +8,8 @@ from sqlalchemy import select
 from app.catalog.arena import ArenaCatalogClient, write_catalog
 from app.catalog.assai import AssaiCatalogClient
 from app.catalog.atacadao import (
+    ALLOWED_FILIAIS,
     CAMPINAS_STORES,
-    DEFAULT_STORE,
     REGION_CITIES,
     AtacadaoCatalogClient,
 )
@@ -91,11 +91,11 @@ def main() -> None:
     atacadao_catalog.add_argument("--output", default="artifacts/atacadao-catalog")
     atacadao_catalog.add_argument(
         "--region",
-        choices=["vila-maria", "campinas", "rmc"],
-        default="vila-maria",
+        choices=["campinas", "rmc"],
+        default="campinas",
         help=(
-            "Lojas a coletar: apenas Vila Maria (padrão), as 10 lojas da região de "
-            "Campinas, ou toda a RMC descoberta ao vivo na API do app."
+            "Lojas a coletar: as lojas da regiao de Campinas (padrao) ou as lojas "
+            "descobertas ao vivo na API do app, filtradas pela allowlist de Campinas."
         ),
     )
     atacadao_catalog.add_argument(
@@ -179,7 +179,7 @@ def main() -> None:
         return
     if args.command == "atacadao-catalog":
         client = AtacadaoCatalogClient(concurrency=args.concurrency)
-        known = {store["filial"]: store for store in (DEFAULT_STORE, *CAMPINAS_STORES)}
+        known = {store["filial"]: store for store in CAMPINAS_STORES}
         if args.filial:
             if any(filial not in known for filial in args.filial):
                 for store in asyncio.run(client.find_stores(REGION_CITIES)):
@@ -190,10 +190,12 @@ def main() -> None:
             stores = [known[filial] for filial in args.filial]
         elif args.region == "campinas":
             stores = list(CAMPINAS_STORES)
-        elif args.region == "rmc":
-            stores = asyncio.run(client.find_stores(REGION_CITIES))
-        else:
-            stores = [DEFAULT_STORE]
+        else:  # rmc: descoberta ao vivo, mas so filiais da allowlist
+            found = asyncio.run(client.find_stores(REGION_CITIES))
+            skipped = [s["filial"] for s in found if s["filial"] not in ALLOWED_FILIAIS]
+            if skipped:
+                print(f"ignorando filiais fora da allowlist de Campinas: {skipped}")
+            stores = [s for s in found if s["filial"] in ALLOWED_FILIAIS]
         catalogs = asyncio.run(client.collect_many(stores))
         total_skus = 0
         total_priced = 0
@@ -201,7 +203,7 @@ def main() -> None:
         total_offers = 0
         with SessionLocal() as db:
             for index, catalog in enumerate(catalogs):
-                prefix = "atacadao" if args.region == "vila-maria" else f"atacadao-{index:02d}"
+                prefix = f"atacadao-{index:02d}"
                 json_path, csv_path = write_catalog(catalog, Path(args.output), prefix=prefix)
                 run = persist_atacadao_catalog(db, catalog)
                 priced = sum(

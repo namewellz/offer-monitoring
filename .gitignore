@@ -33,3 +33,12 @@ artifacts/dalben-catalog/
 
 .idea/
 .vscode/
+
+# capturas de trafego / credenciais (mitmproxy, BlueStacks) - nunca versionar
+capture/
+**/capture/
+token_requests*.jsonl
+flows*.jsonl
+*.mitm
+*.har
+

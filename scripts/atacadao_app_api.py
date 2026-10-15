@@ -16,6 +16,8 @@ Every store-scoped route takes `filialId` and `idFilial` (the store number).
 """
 from __future__ import annotations
 
+import os
+import sys
 import json
 import urllib.error
 import urllib.parse
@@ -26,10 +28,17 @@ BACKOFFICE = "/mobile/ofertas-backoffice/v1"
 TRANSACTIONAL = "/mobile/ofertas-transacional/v1"
 
 TOKEN_PATH = "/infosec/auth/v1/protocol/openid-connect/token"
-CLIENT_ID = "OfertaMobile-TokenAuth"
-CLIENT_SECRET = "CI4hKA5gdaXjDLm52Mz68pXOhIhiUvNA"
-USERNAME = "kcc-ofertas-externo"
-PASSWORD = "WUzN!r2Jrr!8BTFteoW3J"
+def _require_env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        sys.exit(f"{name} is not set (see .env.production.example)")
+    return value
+
+
+CLIENT_ID = _require_env("ATACADAO_APP_CLIENT_ID")
+CLIENT_SECRET = _require_env("ATACADAO_APP_CLIENT_SECRET")
+USERNAME = _require_env("ATACADAO_APP_USERNAME")
+PASSWORD = _require_env("ATACADAO_APP_PASSWORD")
 UA = "Dart/3.10 (dart:io)"
 
 

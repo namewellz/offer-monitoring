@@ -34,15 +34,6 @@ PAGE_SIZE = 50
 SALES_CHANNEL = "1"
 SIMULATION_BATCH_SIZE = 100
 
-DEFAULT_STORE: dict[str, str] = {
-    "name": "Atacadão Vila Maria",
-    "city": "São Paulo",
-    "state": "SP",
-    "postal_code": "02170-901",
-    "address": "Avenida Morvan Dias de Figueiredo, 6157",
-    "seller": "atacadaobr60",
-}
-
 # Atacadão branches in the Campinas region (RMC + surroundings) whose VTEX
 # seller answers the checkout simulation API. Americana (store 625) and
 # Hortolândia (store 632) are excluded because their sellers do not return
@@ -392,6 +383,10 @@ class AtacadaoCatalogClient:
         self, stores: list[dict[str, str]]
     ) -> list[dict[str, Any]]:
         """Collect one catalog per store; the national catalog is fetched once."""
+        allowed = {store["seller"] for store in CAMPINAS_STORES}
+        rejected = [store.get("name") for store in stores if store.get("seller") not in allowed]
+        if not stores or rejected:
+            raise ValueError(f"lojas fora da regiao de Campinas (legado VTEX): {rejected or 'nenhuma'}")
         owns_client = self.client is None
         client = self.client or self._make_client()
         try:
@@ -412,4 +407,4 @@ class AtacadaoCatalogClient:
                 await client.aclose()
 
     async def collect(self) -> dict[str, Any]:
-        return (await self.collect_many([DEFAULT_STORE]))[0]
+        raise ValueError("legado VTEX: loja padrao Vila Maria removida; use collect_many(CAMPINAS_STORES)")

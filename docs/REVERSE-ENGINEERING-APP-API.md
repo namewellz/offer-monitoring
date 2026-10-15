@@ -27,9 +27,9 @@ Credenciais (ver seÃ§Ã£o 9 para o que fazer quando mudarem):
 
 ```
 client_id     = OfertaMobile-TokenAuth
-client_secret = CI4hKA5gdaXjDLm52Mz68pXOhIhiUvNA
+client_secret = <REDACTED - see .env.production>
 username      = kcc-ofertas-externo
-password      = WUzN!r2Jrr!8BTFteoW3J
+password      = <REDACTED - see .env.production>
 scope         = R-OfertasMobile-externo
 aud           = R-OfertasMobile-KC
 ```
@@ -336,9 +336,9 @@ User-Agent: Dart/3.10 (dart:io)
 
 grant_type=password
 username=kcc-ofertas-externo
-password=WUzN%21r2Jrr%218BTFteoW3J
+password=<REDACTED - see .env.production>
 client_id=OfertaMobile-TokenAuth
-client_secret=CI4hKA5gdaXjDLm52Mz68pXOhIhiUvNA
+client_secret=<REDACTED - see .env.production>
 ```
 
 Em seguida, `GET /mobile/ofertas-backoffice/v1/...` com `Authorization: Bearer <jwt>`.
