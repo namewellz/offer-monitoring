@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     catalog_collection_enabled: bool = True
     catalog_collection_cron: str = "0 6,14,22 * * *"
     catalog_v2_enabled: bool = True
+    # Canonical normalizer (docs/canonical): nothing in the app reads it unless this is on.
+    canonical_enabled: bool = False
     davita_api_token: str | None = None
     davita_token_file: Path = Path("/run/secrets/davita_dotenv")
     assai_username: str | None = None

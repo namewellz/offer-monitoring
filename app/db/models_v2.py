@@ -314,12 +314,32 @@ class NormalizedProductVersion(_BigIntId, Base):
     identity_fingerprint: Mapped[bytes] = mapped_column(LargeBinary(32))
     attributes: Mapped[dict] = mapped_column(JSONB, default=dict)
     quality_flags: Mapped[list] = mapped_column(JSONB, default=list)
+    # Migration 0016 (canonical normalizer): all nullable, filled by the canonical backfill.
+    coverage_group: Mapped[str | None] = mapped_column(String(2))
+    department: Mapped[str | None] = mapped_column(Text)
+    brand_key: Mapped[str | None] = mapped_column(Text)
+    brand_origin: Mapped[str | None] = mapped_column(Text)
+    brand_id: Mapped[int | None] = mapped_column(ForeignKey("brands.id"))
+    packaging: Mapped[str | None] = mapped_column(Text)
+    size_kind: Mapped[str | None] = mapped_column(Text)
+    size_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
+    size_unit: Mapped[str | None] = mapped_column(Text)
+    size_label: Mapped[str | None] = mapped_column(Text)
+    pack_qty: Mapped[int | None] = mapped_column(Integer)
+    unit_count: Mapped[int | None] = mapped_column(Integer)
+    unit_type: Mapped[str | None] = mapped_column(Text)
+    core_key: Mapped[str | None] = mapped_column(Text)
+    match_key: Mapped[str | None] = mapped_column(Text)
+    canonical_name_no_brand: Mapped[str | None] = mapped_column(Text)
+    gtin_match: Mapped[bool | None] = mapped_column(Boolean)
+    key_match: Mapped[bool | None] = mapped_column(Boolean)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
     __table_args__ = (
         UniqueConstraint(
-            "source_product_version_id", "normalizer_version", "pipeline_version"
+            "source_product_version_id", "normalizer_version", "pipeline_version",
+            name="uq_normalized_versions_source_pipeline",
         ),
         UniqueConstraint("id", "source_product_version_id"),
     )
@@ -498,3 +518,32 @@ class ShoppingListItem(_BigIntId, Base):
         DateTime(timezone=True), server_default=func.now()
     )
     __table_args__ = (UniqueConstraint("list_id", "department", "category", "form"),)
+
+
+class Brand(_BigIntId, Base):
+    __tablename__ = "brands"
+    name: Mapped[str] = mapped_column(Text)
+    brand_key: Mapped[str] = mapped_column(Text, unique=True)
+    department_scope: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class BrandAlias(_BigIntId, Base):
+    __tablename__ = "brand_aliases"
+    brand_id: Mapped[int] = mapped_column(ForeignKey("brands.id", ondelete="CASCADE"))
+    alias: Mapped[str] = mapped_column(Text)
+    alias_key: Mapped[str] = mapped_column(Text, unique=True)
+    status: Mapped[str] = mapped_column(Text, default="candidate")  # candidate|approved|blocked
+    short_brand_whitelist: Mapped[bool] = mapped_column(Boolean, default=False)
+    source: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InvalidBrand(_BigIntId, Base):
+    __tablename__ = "invalid_brands"
+    brand_key: Mapped[str] = mapped_column(Text, unique=True)
+    name: Mapped[str] = mapped_column(Text)
+    reason: Mapped[str | None] = mapped_column(Text)
+    department_scope: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

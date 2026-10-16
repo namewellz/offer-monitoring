@@ -79,6 +79,14 @@ def main() -> None:
     commands.add_parser("discover-all")
     commands.add_parser("reclassify-catalog")
     commands.add_parser("backfill-v2")
+    canonical = commands.add_parser(
+        "canonical-backfill",
+        help="normalize current source_product_versions into normalized_product_versions",
+    )
+    canonical.add_argument("--dry-run", action="store_true")
+    canonical.add_argument("--limit", type=int)
+    canonical.add_argument("--batch-size", type=int, default=2000)
+    canonical.add_argument("--report", help="write the coverage report (markdown) to this path")
     extract = commands.add_parser("extract")
     extract.add_argument("--flyer", required=True)
     extract.add_argument("--strategy")
@@ -149,6 +157,27 @@ def main() -> None:
         with SessionLocal() as db:
             changed = reclassify_catalog_departments(db)
         print(f"Reclassified {changed} catalog products")
+        return
+    if args.command == "canonical-backfill":
+        from app.canonical.backfill import (
+            db_group_counts,
+            render_report,
+            run_backfill,
+            write_report,
+        )
+
+        with SessionLocal() as db:
+            result = run_backfill(
+                db, dry_run=args.dry_run, limit=args.limit, batch_size=args.batch_size
+            )
+            print(
+                f"canonical-backfill: total={result['total']} selected={result['selected']} "
+                f"inserted={result['inserted']} dry_run={result['dry_run']}"
+            )
+            counts = result["corpus_groups"] if args.dry_run else db_group_counts(db)
+            if args.report:
+                write_report(Path(args.report), render_report(counts, result["items"]))
+                print(f"report: {args.report}")
         return
     if args.command == "backfill-v2":
         with SessionLocal() as db:
