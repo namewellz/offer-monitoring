@@ -90,6 +90,47 @@ def normalize_category(name: str) -> str:
         kept = " ".join(tokens)
     return kept
 
+
+# "Coxa e Sobrecoxa", "Coxa com Sobrecoxa" and "Coxa/Sobrecoxa" are one cut
+# (the chicken leg quarter). The slash is folded to a space before matching,
+# so the connector word is optional. Tails that change the product stay.
+_COXA_PAIR_HEAD = re.compile(
+    r"^coxa\s+(?:(?:e|com|c)\s+)?sobrecoxa\b\s*(?P<rest>.*)$"
+)
+_COXA_PAIR_TAILS = {
+    "": "de Frango",
+    "de frango": "de Frango",
+    "sem osso": "de Frango Sem Osso",
+    "de frango sem osso": "de Frango Sem Osso",
+    "temperada": "de Frango Temperada",
+    "de frango temperada": "de Frango Temperada",
+    "sem osso temperada": "de Frango Sem Osso Temperada",
+    "de frango sem osso temperada": "de Frango Sem Osso Temperada",
+    "de chester": "de Chester",
+    "de pato": "de Pato",
+}
+
+
+def equivalent_cut_category(name: str) -> str:
+    """One display name for spelling variants of the same cut.
+
+    Coxa alone and sobrecoxa alone are left untouched. Unknown tails (filé,
+    espetinho, passarinho) are also left untouched.
+    """
+    original = " ".join((name or "").split())
+    if not original:
+        return original
+    text = re.sub(r"\s+", " ", _fold_ascii(original).replace("/", " ")).strip()
+    match = _COXA_PAIR_HEAD.match(text)
+    if not match:
+        return original
+    rest = re.sub(r"\s+", " ", match.group("rest")).strip()
+    tail = _COXA_PAIR_TAILS.get(rest)
+    if tail is None:
+        return original
+    return f"Coxa/Sobrecoxa {tail}"
+
+
 # Curated closed vocabulary used to steer the LLM (and shown on the screen).
 CANONICAL_CATEGORIES: tuple[str, ...] = (
     "Alcatra", "Ancho", "Aranha", "Acém", "Bacon", "Bisteca Suína",

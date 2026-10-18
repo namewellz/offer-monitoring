@@ -1,6 +1,9 @@
 """Unit tests for the Açougue deterministic parser."""
 
-from app.enrichment.meat import parse_meat
+from decimal import Decimal
+
+from app.enrichment.meat import parse_meat, plain_coxa_sobrecoxa
+from app.enrichment.resolver import MeatItem
 
 
 def test_peito_frango_sem_osso() -> None:
@@ -25,6 +28,104 @@ def test_acem_sem_osso_em_cubos() -> None:
     assert parsed.bone_state == "sem_osso"
     assert parsed.presentation == "cubos"
     assert parsed.sale_mode == "kg"
+
+
+def test_coxa_e_sobrecoxa_sem_a_palavra_frango() -> None:
+    parsed = parse_meat("Coxa E Sobrecoxa 1kg")
+    assert parsed.is_meat
+    assert parsed.species == "frango"
+    assert parsed.cut == "coxa_com_sobrecoxa"
+    assert parsed.sale_mode == "peso_fixo"
+    assert parsed.weight_kg == 1.0
+
+
+def test_spani_500g_usa_o_preco_por_quilo_do_anuncio() -> None:
+    # Anúncio: R$ 5,83 / 500g. O site também mostra R$ 11,66/kg.
+    item = MeatItem(
+        retailer="spani",
+        store="Parque Universitário de Viracopos",
+        product_id=12166,
+        raw_name="Frango Coxa E Sobrecoxa Resfriado 500g",
+        effective_price_cents=583,
+        price_basis_unit="KG",
+    )
+    assert item.parsed.sale_mode == "peso_fixo"
+    assert item.parsed.weight_kg == 0.5
+    assert item.price_kg == Decimal("11.66")
+
+
+def test_spani_vendido_por_quilo_nao_divide_de_novo() -> None:
+    item = MeatItem(
+        retailer="spani",
+        store="Viracopos",
+        product_id=2,
+        raw_name="Linguiça Portuguesa Aurora Kg",
+        effective_price_cents=3990,
+        price_basis_unit="KG",
+    )
+    assert item.price_kg == Decimal("39.90")
+
+
+def test_spani_peso_ilegivel_nao_vira_preco_por_quilo() -> None:
+    # "0,500g" vira 0,5 g no parser; "400kg" não é o pacote. Não dividir.
+    meio = MeatItem(
+        retailer="spani",
+        store="Viracopos",
+        product_id=4,
+        raw_name="Linguiça Toscana Bragança Resfriada 0,500g",
+        effective_price_cents=1145,
+        price_basis_unit="KG",
+    )
+    queijo = MeatItem(
+        retailer="spani",
+        store="Viracopos",
+        product_id=5,
+        raw_name="Queijo Minas Padrão Rosa 400kg",
+        effective_price_cents=2667,
+        price_basis_unit="KG",
+    )
+    assert meio.price_kg == Decimal("11.45")
+    assert queijo.price_kg == Decimal("26.67")
+
+
+def test_dalben_base_kg_ja_e_o_preco_por_quilo() -> None:
+    item = MeatItem(
+        retailer="dalben",
+        store="Taquaral",
+        product_id=3,
+        raw_name="Alcatra Em Bife 500g",
+        effective_price_cents=2845,
+        price_basis_unit="KG",
+    )
+    assert item.price_kg == Decimal("28.45")
+
+
+def test_coxa_e_sobrecoxa_1kg_entra_no_preco_por_quilo() -> None:
+    item = MeatItem(
+        retailer="dalben",
+        store="Taquaral",
+        product_id=1,
+        raw_name="Coxa E Sobrecoxa 1kg",
+        effective_price_cents=2799,
+        price_basis_unit="UN",
+    )
+    assert item.parsed.is_meat
+    assert item.price_kg == Decimal("27.99")
+
+
+def test_passarinho_e_empanado_nao_disputam_preco_da_peca() -> None:
+    peça = parse_meat("Coxa E Sobrecoxa 1kg")
+    passarinho = parse_meat("Coxa Sobrecoxa Passarinho Sadia 1kg Na Medida")
+    empanado = parse_meat("Coxa Sobrecoxa Empan.perdigao 400g")
+    assert plain_coxa_sobrecoxa(peça, "Coxa E Sobrecoxa 1kg")
+    assert not plain_coxa_sobrecoxa(passarinho, "Coxa Sobrecoxa Passarinho Sadia 1kg Na Medida")
+    assert not plain_coxa_sobrecoxa(empanado, "Coxa Sobrecoxa Empan.perdigao 400g")
+
+
+def test_coxa_e_sobrecoxa_de_pato_nao_vira_frango() -> None:
+    parsed = parse_meat("Coxa e Sobrecoxa de Pato 1kg")
+    assert parsed.species is None
+    assert parsed.cut == "coxa_com_sobrecoxa"
 
 
 def test_asa_congelada_peso_fixo() -> None:

@@ -9,6 +9,21 @@ from typing import Any
 from app.enrichment.meat import ParsedMeat, parse_meat
 
 
+# Spani grava unidade_sigla KG, mas o `preco` é o do pacote do anúncio.
+# O site mostra esse valor e, à parte, o preço por kg (pacote / peso).
+# Dalben e os outros já entregam o preço por kg quando a base é KG.
+_PACK_PRICE_ON_KG_BASIS = frozenset({"spani"})
+
+
+def _pack_price_labeled_as_kg(item: MeatItem) -> bool:
+    if (item.retailer or "").strip().casefold() not in _PACK_PRICE_ON_KG_BASIS:
+        return False
+    if item.parsed.sale_mode != "peso_fixo" or not item.parsed.weight_kg:
+        return False
+    # Fora dessa faixa o título não é o peso do pacote (ex.: "0,500g", "400kg").
+    return 0.05 <= item.parsed.weight_kg <= 30
+
+
 @dataclass
 class MeatItem:
     retailer: str
@@ -29,7 +44,7 @@ class MeatItem:
             return None
         price = Decimal(self.effective_price_cents) / 100
         basis = (self.price_basis_unit or "").strip().upper()
-        if basis == "KG":
+        if basis == "KG" and not _pack_price_labeled_as_kg(self):
             # O coletor já normalizou o preço por quilo (ex.: "1,500Kg Peça
             # Vácuo" cobrado por kg); não dividir de novo pelo peso do nome.
             return price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)

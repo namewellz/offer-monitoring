@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.catalog.taxonomy import canonical_department
@@ -57,6 +57,65 @@ def _change(
     amount = current - previous
     percent = (amount / previous * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     return amount, percent
+
+
+def shelf_previous_cents(
+    *,
+    current_cents: int | None,
+    regular_cents: int | None,
+    best_conditional: int | None,
+    terms: Any,
+    previous_effective: int | None,
+    previous_regular: int | None,
+) -> int | None:
+    """Baseline for a price change.
+
+    When the open price is the shelf price ("preço final") and the previous
+    effective price was a discount, compare with the previous shelf price.
+    Ending "estilo-dalben" at R$ 11,99 back to R$ 27,99 is not a +133% increase
+    if the shelf price only moved from R$ 25,99 to R$ 27,99.
+    """
+    if previous_effective is None:
+        return None
+    current_is_final = (
+        best_conditional is None
+        and not _terms(terms)
+        and (regular_cents is None or current_cents == regular_cents)
+    )
+    if (
+        current_is_final
+        and previous_regular is not None
+        and previous_effective < previous_regular
+    ):
+        return previous_regular
+    return previous_effective
+
+
+def _comparable_previous_cents(open_period: Any, previous: Any) -> Any:
+    """SQL twin of ``shelf_previous_cents`` for the changes filter and sort."""
+    term_count = case(
+        (
+            func.jsonb_typeof(open_period.price_terms) == "array",
+            func.jsonb_array_length(open_period.price_terms),
+        ),
+        else_=0,
+    )
+    current_is_final = and_(
+        open_period.best_conditional_price_cents.is_(None),
+        term_count == 0,
+        or_(
+            open_period.regular_price_cents.is_(None),
+            open_period.effective_price_cents == open_period.regular_price_cents,
+        ),
+    )
+    previous_was_discount = and_(
+        previous.regular_price_cents.is_not(None),
+        previous.effective_price_cents < previous.regular_price_cents,
+    )
+    return case(
+        (and_(current_is_final, previous_was_discount), previous.regular_price_cents),
+        else_=previous.effective_price_cents,
+    )
 
 
 def _terms(terms: Any) -> list[dict[str, Any]]:
@@ -181,6 +240,7 @@ def _current_listings_query(
             Retailer.slug,
             store_label(Store),
             open_period.price_basis_unit,
+            previous.regular_price_cents,
         )
         .join(
             open_period,
@@ -273,7 +333,16 @@ def row_result(row: tuple[Any, ...], department: str | None = None) -> dict[str,
     ) = row
     regular = _money(regular_cents)
     current = _money(effective_cents)
-    previous_price = _money(previous_cents) if previous_cents is not None else None
+    previous_regular = _extra[-1] if _extra and isinstance(_extra[-1], int) else None
+    baseline_cents = shelf_previous_cents(
+        current_cents=effective_cents,
+        regular_cents=regular_cents,
+        best_conditional=best_conditional,
+        terms=terms,
+        previous_effective=previous_cents,
+        previous_regular=previous_regular,
+    )
+    previous_price = _money(baseline_cents) if baseline_cents is not None else None
     change_amount, change_percent = _change(current, previous_price)
     if department is None:
         department = canonical_department(raw_categories, raw_name)
@@ -351,6 +420,8 @@ def _filtered_listings_query(
             Retailer.name,
             Retailer.slug,
             store_label(Store),
+            open_period.price_basis_unit,
+            previous.regular_price_cents,
         )
         .join(
             open_period,
@@ -400,25 +471,23 @@ def _filtered_listings_query(
             SourceProductVersion.raw_name,
         )
     elif changes_only:
+        baseline = _comparable_previous_cents(open_period, previous)
         query = query.where(
-            previous.effective_price_cents.is_not(None),
-            open_period.effective_price_cents.is_distinct_from(previous.effective_price_cents),
+            baseline.is_not(None),
+            open_period.effective_price_cents.is_distinct_from(baseline),
         )
         if minimum_percent > 0:
             query = query.where(
-                func.abs(open_period.effective_price_cents - previous.effective_price_cents)
-                * 100.0
-                >= minimum_percent * previous.effective_price_cents
+                func.abs(open_period.effective_price_cents - baseline) * 100.0
+                >= minimum_percent * baseline
             )
         if direction == "up":
-            query = query.where(open_period.effective_price_cents > previous.effective_price_cents)
+            query = query.where(open_period.effective_price_cents > baseline)
         elif direction == "down":
-            query = query.where(open_period.effective_price_cents < previous.effective_price_cents)
+            query = query.where(open_period.effective_price_cents < baseline)
         query = query.order_by(
             func.abs(
-                (open_period.effective_price_cents - previous.effective_price_cents)
-                * 1.0
-                / previous.effective_price_cents
+                (open_period.effective_price_cents - baseline) * 1.0 / baseline
             )
             .desc()
             .nulls_last(),

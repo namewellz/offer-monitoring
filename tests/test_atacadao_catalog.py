@@ -137,7 +137,10 @@ def test_collect_many_orders_catalogs_by_observation_time(monkeypatch) -> None:
     monkeypatch.setattr(client, "_collect_store", fake_collect_store)
     monkeypatch.setattr(client, "authenticate", fake_authenticate)
 
-    stores = [{"name": f"Loja {n}", "filial": n, "city": "c", "state": "SP"} for n in (1, 2, 3)]
+    # filiais da allowlist de Campinas: collect_many recusa loja fora dela
+    stores = [
+        {"name": f"Loja {n}", "filial": n, "city": "c", "state": "SP"} for n in (662, 663, 677)
+    ]
     catalogs = asyncio.run(client.collect_many(stores))
     assert [catalog["collected_at"] for catalog in catalogs] == [
         "2026-10-14T00:10:00+00:00",

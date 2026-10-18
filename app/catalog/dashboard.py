@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import io
 from datetime import datetime
 from html import escape
 from typing import Any
@@ -22,6 +24,82 @@ RETAILERS = (
     ("spani", "Spani"),
     ("pague-menos", "Pague Menos"),
 )
+
+
+def _csv_number(value: Any) -> str:
+    if value is None:
+        return ""
+    return f"{float(value):.2f}".replace(".", ",")
+
+
+def _offer_percent(result: dict[str, Any]) -> float | None:
+    regular_price = result.get("regular_price")
+    current_price = result.get("current_price")
+    if (
+        regular_price is None
+        or current_price is None
+        or float(regular_price) <= float(current_price)
+        or float(regular_price) <= 0
+    ):
+        return None
+    return (float(regular_price) - float(current_price)) / float(regular_price) * 100
+
+
+def catalog_csv_header(view: str) -> str:
+    previous = "preco_de" if view == "offers" else "preco_anterior"
+    variation = "desconto_percentual" if view == "offers" else "variacao_percentual"
+    buffer = io.StringIO()
+    csv.writer(buffer, delimiter=";", lineterminator="\r\n").writerow(
+        [
+            "produto",
+            "marca",
+            "departamento",
+            "supermercado",
+            "loja",
+            previous,
+            "preco_atual",
+            "condicao",
+            variation,
+            "coletado_em",
+        ]
+    )
+    return buffer.getvalue()
+
+
+def catalog_csv_rows(results: list[dict[str, Any]], view: str) -> str:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
+    for result in results:
+        raw_percent = result.get("change_percent")
+        percent = float(raw_percent) if raw_percent is not None else None
+        if view == "offers":
+            previous_value = result.get("regular_price")
+            variation = _offer_percent(result)
+        else:
+            previous_value = result.get("previous_price")
+            variation = percent
+        observed = result.get("observed_at")
+        collected = to_local(observed).strftime("%d/%m/%Y %H:%M") if observed else ""
+        writer.writerow(
+            [
+                result.get("product") or "",
+                result.get("brand") or "",
+                result.get("department") or "",
+                result.get("retailer") or "",
+                result.get("store") or "Todas as lojas",
+                _csv_number(previous_value),
+                _csv_number(result.get("current_price")),
+                result.get("price_condition") or "",
+                _csv_number(variation),
+                collected,
+            ]
+        )
+    return buffer.getvalue()
+
+
+def render_catalog_csv(results: list[dict[str, Any]], view: str) -> str:
+    """CSV of the filtered price rows, with a BOM so Excel opens the accents."""
+    return "\ufeff" + catalog_csv_header(view) + catalog_csv_rows(results, view)
 
 
 def _money(value: Any) -> str:
@@ -56,17 +134,7 @@ def render_catalog_dashboard(
     for result in results:
         raw_percent = result["change_percent"]
         percent = float(raw_percent) if raw_percent is not None else None
-        regular_price = result.get("regular_price")
-        current_price = result["current_price"]
-        offer_percent = (
-            (float(regular_price) - float(current_price)) / float(regular_price) * 100
-            if view == "offers"
-            and regular_price is not None
-            and current_price is not None
-            and float(regular_price) > float(current_price)
-            and float(regular_price) > 0
-            else None
-        )
+        offer_percent = _offer_percent(result) if view == "offers" else None
         css_class = (
             "increase"
             if percent is not None and percent > 0
@@ -88,7 +156,7 @@ def render_catalog_dashboard(
             if percent == 0
             else "Sem referência"
         )
-        previous_value = regular_price if view == "offers" else result["previous_price"]
+        previous_value = result.get("regular_price") if view == "offers" else result["previous_price"]
         previous_sort = previous_value if previous_value is not None else ""
         current_sort = result["current_price"] if result["current_price"] is not None else ""
         store = result["store"] or "Todas as lojas"
@@ -158,6 +226,16 @@ def render_catalog_dashboard(
         }
         return "/catalog?" + escape(urlencode(parameters), quote=True)
 
+    export_parameters = {
+        "product": product or "",
+        "retailer": retailer or "",
+        "department": department or "",
+        "direction": direction,
+        "minimum_percent": f"{minimum_percent:g}",
+        "view": view,
+    }
+    export_url = "/catalog/export.csv?" + escape(urlencode(export_parameters), quote=True)
+
     pagination = ""
     if total_pages > 1:
         previous = (
@@ -187,7 +265,7 @@ def render_catalog_dashboard(
 <html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#145c42"><title>Monitor de preços</title>
-<link rel="stylesheet" href="/static/catalog.css?v=20260829-4"></head>
+<link rel="stylesheet" href="/static/catalog.css?v=20261016-1"></head>
 <body><header class="topbar"><div class="shell brandbar">
 <a class="brand" href="/"><span class="brand-mark">OM</span><span>Offer Monitor</span></a>
 <nav class="topnav"><a href="/">Início</a><a href="/shopping-lists">Lista de compras</a><a href="/catalog/updates">Atualizações</a></nav>
@@ -226,7 +304,8 @@ def render_catalog_dashboard(
 <button class="primary" type="submit">Aplicar filtros</button></div></form>
 <section class="results-card"><div class="results-heading"><div><h2>Resultados</h2>
 <p>{total_results_label} {result_description} · exibindo {first_result_label}–{last_result_label}</p></div>
-<span class="desktop-hint">Toque nos títulos para ordenar</span></div>
+<div class="results-actions"><a class="page-button" href="{export_url}">Exportar CSV</a>
+<span class="desktop-hint">Toque nos títulos para ordenar</span></div></div>
 <div class="table-wrap"><table id="catalog-table"><thead><tr>
 <th class="sortable" data-key="product">Produto</th><th class="sortable" data-key="department">Departamento</th>
 <th class="sortable" data-key="retailer">Supermercado</th><th class="sortable" data-key="store">Loja</th>

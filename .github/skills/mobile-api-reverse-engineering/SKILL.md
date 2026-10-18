@@ -43,6 +43,10 @@ está em `docs/REVERSE-ENGINEERING-APP-API.md` — use-o como referência concre
 - `native-code` decide a estratégia de emulação.
 - `strings`/regex nas libs nativas: URLs, `Bearer`, `client_secret`, `Authorization`, nomes de SDK.
   Em Flutter, **toda a lógica está em `lib/<abi>/libapp.so`** — é lá que as URLs aparecem.
+- **React Native/Expo (bundle Hermes, magic `c6 1f bc 03`)**: o bundle é bytecode, mas as strings
+  continuam legíveis (`scripts/extract_strings.py <bundle>`). Atenção: a URL da API pode **não**
+  estar no bundle — vai para `classes*.dex`/`lib*.so`. Rode o dump no diretório inteiro
+  (`extract_strings.py <dir> --min 8 --unique`) antes de partir para captura de tráfego.
 
 ### 2. Rodar o app
 Windows: BlueStacks 5 instância `Pie64` (ABIs incluem `arm64-v8a`). Comandos em

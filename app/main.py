@@ -4,14 +4,22 @@ from html import escape
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from redis import Redis
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.annotation.routes import router as annotation_router
-from app.catalog.dashboard import RETAILERS, render_catalog_dashboard
+from app.canonical.dictionary import apply_brand_action, approve_selected, dictionary_page
+from app.canonical.review_queue import queue_snapshot
+from app.canonical.stats import coverage_snapshot
+from app.catalog.dashboard import (
+    RETAILERS,
+    catalog_csv_header,
+    catalog_csv_rows,
+    render_catalog_dashboard,
+)
 from app.home import render_home
 from app.catalog.taxonomy import CANONICAL_DEPARTMENTS
 from app.catalog.update_dashboard import render_update_dashboard
@@ -64,6 +72,7 @@ from app.db.models import (
     Store,
 )
 from app.db.session import get_db
+from app.enrichment.brands_dashboard import render_brands_page
 from app.enrichment.butcher import butcher_comparison
 from app.enrichment.categories_dashboard import render_categories_page
 from app.enrichment.dashboard import render_butcher_dashboard
@@ -1031,20 +1040,25 @@ def butcher_json(limit: int = 300, all: int = 0, db: Session = Depends(get_db)):
 
 
 @app.get("/catalog/butcher-review", response_class=HTMLResponse, include_in_schema=False)
-def butcher_review_page(db: Session = Depends(get_db), department: str = "Açougue"):
+def butcher_review_page(
+    db: Session = Depends(get_db),
+    department: str = "Açougue",
+    fila: str | None = None,
+):
     """Revisão de classificação por departamento.
 
     Açougue usa a revisão determinística (parser de cortes + overlay LLM); os
     demais departamentos usam a revisão genérica da classificação LLM
     (categorias canônicas + amostras + rejeitados). Troque com o seletor.
     """
+    queue = queue_snapshot(db, department, fila, base="/catalog/butcher-review")
     if department == "Açougue":
         rows = _views_get("review:Açougue", lambda: butcher_review(db), db)
-        return render_butcher_review(rows)
+        return render_butcher_review(rows, queue)
     rows = _views_get(
         f"review:{department}", lambda: department_review(db, department), db
     )
-    return render_department_review_page(rows)
+    return render_department_review_page(rows, queue)
 
 
 @app.get("/catalog/butcher-review.json")
@@ -1076,12 +1090,17 @@ def produce_prices_json(db: Session = Depends(get_db)):
 
 
 @app.get("/catalog/department-review", response_class=HTMLResponse, include_in_schema=False)
-def department_review_page(db: Session = Depends(get_db), department: str = "Mercearia"):
+def department_review_page(
+    db: Session = Depends(get_db),
+    department: str = "Mercearia",
+    fila: str | None = None,
+):
     """Revisão da classificação de um departamento (não só Açougue)."""
     rows = _views_get(
         f"review:{department}", lambda: department_review(db, department), db
     )
-    return render_department_review_page(rows)
+    queue = queue_snapshot(db, department, fila, base="/catalog/department-review")
+    return render_department_review_page(rows, queue)
 
 
 @app.get("/catalog/department-review.json")
@@ -1120,6 +1139,23 @@ def categories_update(updates: dict, db: Session = Depends(get_db), department: 
     seed_categories(db, department=department)
     payload = updates.get("updates") or []
     return set_canonicals(db, payload, department=department)
+
+
+@app.get("/catalog/brands", response_class=HTMLResponse, include_in_schema=False)
+def brands_page(db: Session = Depends(get_db), q: str = ""):
+    """Dicionário de marcas: aprovar, bloquear ou criar apelido."""
+    return render_brands_page(dictionary_page(db, q))
+
+
+@app.post("/catalog/brands")
+def brands_update(payload: dict, db: Session = Depends(get_db)):
+    """Grava uma decisão ou aprova as marcas marcadas. Não refaz as versões canônicas."""
+    try:
+        if payload.get("action") == "approve_selected":
+            return approve_selected(db, payload)
+        return apply_brand_action(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/catalog/categories/normalize")
@@ -1341,7 +1377,91 @@ def catalog_update_log_results(db: Session, executions_per_source: int = 10) -> 
 
 @app.get("/catalog/updates", response_class=HTMLResponse, include_in_schema=False)
 def catalog_update_dashboard(db: Session = Depends(get_db)):
-    return render_update_dashboard(catalog_update_log_results(db))
+    return render_update_dashboard(catalog_update_log_results(db), coverage_snapshot(db))
+
+
+def _iter_catalog_csv(
+    *,
+    product: str | None,
+    retailer: str | None,
+    department: str | None,
+    direction: str,
+    minimum_percent: float,
+    view: str,
+):
+    """Yield the filtered price rows. The session stays open until the file ends."""
+    from app.db.session import SessionLocal
+
+    with SessionLocal() as db:
+        yield "\ufeff"
+        yield catalog_csv_header(view)
+        fast_path = view == "all" and department is None and direction == "all" and minimum_percent == 0
+        if fast_path:
+            offset = 0
+            batch = 2000
+            while True:
+                rows = v2_current_listings(
+                    db,
+                    product=product,
+                    retailer=retailer,
+                    limit=batch,
+                    offset=offset,
+                )
+                if not rows:
+                    break
+                yield catalog_csv_rows([v2_row_result(row) for row in rows], view)
+                offset += batch
+                if len(rows) < batch:
+                    break
+            return
+        cache_key = "v2results|" + "|".join(
+            str(value)
+            for value in (product, retailer, department, direction, minimum_percent, view)
+        )
+        results = _views_get(
+            cache_key,
+            lambda: v2_price_results(
+                db,
+                product=product,
+                retailer=retailer,
+                department=department,
+                direction=direction,
+                minimum_percent=minimum_percent,
+                view=view,
+            ),
+            db,
+        )
+        yield catalog_csv_rows(results, view)
+
+
+@app.get("/catalog/export.csv", include_in_schema=False)
+def catalog_export_csv(
+    product: str | None = None,
+    retailer: str | None = None,
+    department: str | None = None,
+    direction: str = "all",
+    minimum_percent: float = 0,
+    view: str = "all",
+):
+    if view not in {"all", "offers", "changes"}:
+        raise HTTPException(400, "view must be all, offers or changes")
+    filename = {
+        "all": "precos.csv",
+        "offers": "precos-ofertas.csv",
+        "changes": "precos-variacoes.csv",
+    }[view]
+    return StreamingResponse(
+        _iter_catalog_csv(
+            product=product,
+            retailer=retailer,
+            department=department,
+            direction=direction,
+            minimum_percent=minimum_percent,
+            view=view,
+        ),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/catalog", response_class=HTMLResponse, include_in_schema=False)

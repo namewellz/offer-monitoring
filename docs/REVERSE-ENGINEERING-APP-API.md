@@ -775,6 +775,8 @@ Ordem pensada para **descartar o caminho caro o quanto antes**.
    `clientId`, `lojaAuthJWT`). Rotas aparecem em strings **e** em template literals.
 3. **BinÃ¡rio nativo?** `strings`/regex em `lib/*/lib*.so` ou nas classes dex. Procure URLs,
    `Bearer`, `Authorization`, `client_secret`, `api_key`.
+   - **Sempre** rode o dump tambÃ©m nos `classes*.dex`, mesmo quando existe bundle hÃ­brido/RN: no
+     Tenda a URL da API estava sÃ³ no dex (Â§ 13.2). `scripts/extract_strings.py <dir> --min 8 --unique`.
 4. **Config remota** (Firebase RC, bootstrap) â€” se as URLs vÃªm de lÃ¡, elas sÃ£o interceptÃ¡veis por
    HTTP nativo, o que abre o truque do proxy reverso (Â§ 4).
 5. **SÃ³ entÃ£o** montar o ambiente de execuÃ§Ã£o: BlueStacks Pie64, ADB, root, `install-multiple`.
@@ -815,6 +817,203 @@ docker run --rm --network offer-monitoring_default `
 ```
 
 O mesmo padrÃ£o serve para qualquer comando do CLI (`spani-catalog`, `backfill-v2`, â€¦).
+
+---
+
+## 13. Caso 3 — Tenda Atacado (`com.root.tendadrive.Activities` 10.8.2)
+
+Pergunta do usuário: *"o app usa a mesma API que o site já usa no projeto, ou é o mesmo caso do
+Atacadão (que tinha API melhor no app)?"* Resposta curta: **é a mesma API**. A diferença real não
+estava na rota, estava no **campo de oferta que o coletor não lia**.
+
+### 13.1 Reconhecimento do pacote
+
+```powershell
+# XAPK -> base.apk + splits
+Expand-Archive "$env:TEMP\Tenda Atacado_10.8.2.xapk" -DestinationPath $env:TEMP\tenda-xapk
+aapt2 dump badging "$env:TEMP\tenda-xapk\base.apk" | Select-String "package:|sdkVersion|targetSdk|launchable|native-code"
+```
+
+| Item | Valor |
+|---|---|
+| package / versionName / versionCode | `com.root.tendadrive.Activities` / `10.8.2` / `806572` |
+| minSdk / targetSdk | 24 / 36 |
+| `native-code` no `base.apk` | **ausente** (as `.so` ficam no split de ABI: `split_0.apk`, 32,2 MB, 34 libs **arm64-v8a**) |
+| framework | React Native + Expo SDK 57, bundle em **Hermes bytecode** |
+| `assets/index.android.bundle` | 7,76 MB, magic `c6 1f bc 03` |
+| `assets/app.config` | slug `tenda`, Sentry `tenda-mobile-b2c-app`/`b2c-app`, FB appID `170490998090819` |
+| pinning | módulo nativo próprio `SslPinningModule` (mais um motivo para não depender de mitm) |
+
+### 13.2 A lição: a URL não estava no bundle JS
+
+`scripts/extract_strings.py` no `assets/index.android.bundle` devolveu só assets de marketing
+(`tendaatacado.com.br/assets/blackFriday/...`), e-mails de contato, deep link `tendadrive://` e
+domínios de bibliotecas (MDN, Sentry, reanimated). **Nenhuma URL de API.**
+
+Em app React Native a base costuma vir de `expo-constants`/`extra` (injetada no bundle) ou do lado
+nativo — e aqui foi o nativo. A resposta estava nos dex:
+
+```powershell
+# extrai dex + .so do base.apk/split_0.apk e roda o dump recursivo
+python scripts\extract_strings.py "$env:TEMP\tenda-xapk\ex" --min 8 --unique --out C:\Android\capture\tenda_native_strings.txt
+Select-String -Path C:\Android\capture\tenda_native_strings.txt -Pattern "tendaatacado" | ForEach-Object Line | Sort-Object -Unique
+```
+
+Resultado (único em toda a árvore de 465.435 strings):
+
+```
+https://api.tendaatacado.com.br/api
+https://services.tendaatacado.com.br
+https://tendaatacado.com.br
+```
+
+Ou seja, `extract_strings.py` agora **aceita diretório** (passou a varrer dex/so/asset de uma vez).
+Regra prática nova para o checklist (§12 item 3): *se o bundle híbrido/RN não traz a URL, o próximo
+lugar é `classes*.dex`, não a captura de tráfego.*
+
+### 13.3 O app chama as mesmas rotas do coletor
+
+Rotas reconstruídas das strings do bundle + dos dex (a API é montada por concatenação, então os
+caminhos aparecem como fragmentos: `api/public/...`):
+
+| Função | Rota | O coletor já usava? |
+|---|---|---|
+| Departamentos | `GET /public/store/departments` | sim |
+| Produtos por categoria | `GET /public/store/category/{id}/products?page&order&save` | sim |
+| Lista de filiais | `GET /public/branch/all` | **não** (novo) |
+| Filial por CEP | `GET /public/branch/zip/{cep}` | **não** (novo) |
+| Vitrine de novidades | `GET /public/store/category/products/newness` | não |
+| Busca | `GET /public/store/search?query=` | não |
+| Banner/home | `GET /public/ads/view`, `/public/component/home-mobile` | não |
+| Conta (exige login) | `/public/oauth/access-token`, `/public/anonymous-client`, `/public/client/*`, `/public/client/v2/pre-registration` | não (e não precisa) |
+
+O app **não pede login** para ver ofertas porque tudo isso é `/public/*`. A busca do site usa
+`query` (o app também): `?search=` devolve `400 {"error":"Invalid parameter 'query'"}`.
+
+### 13.4 Evidência do CEP do usuário (13184-494 → Hortolândia)
+
+```powershell
+python scripts\probe_tenda_app.py --cep 13184494 --branch-id 46
+```
+
+```
+GET /public/branch/zip/13184494 -> 200
+  [{"id": 46, "code": "CT39", "name": "Hortolândia", "address": {"zipCode": "13184494", ...
+    "city": "Hortolândia", "latitude": -22.8638, "longitude": -47.21369},
+    "distance": 38.81, ...}, {"id": 12, "code": "CT32", "name": "Sumaré"}, {"id": 40, "code": "CAMP", ...}]
+```
+
+A filial resolvida é **exatamente** o `BRANCH_ID = "46"` / `CT39` que o coletor já usava — o
+`REFERENCE_ZIP_CODE` do código (`13184222`) e o CEP que o usuário digitou no app (`13184494`)
+caem na mesma loja (a 38,8 m do endereço).
+
+### 13.5 Preço é da rede, estoque é da loja (e as ofertas são do app)
+
+```powershell
+python scripts\probe_tenda_branch.py   # comparativo com/sem branchId
+```
+
+| Verificação | Resultado |
+|---|---|
+| `?branchId=46` muda `price`, `promotions` ou `inventory`? | **não** — 0 divergências em 2 categorias × 20 produtos |
+| Tamanho de `inventory[]` | 45 filiais em **todas** as respostas (com e sem `branchId`) |
+| `totalStock` | agregado da rede (limitado em 500) |
+| Produtos com `promotions[]` | ~13% na categoria 1 (páginas 1–5) |
+| Produtos com `promotion` (singular) | 0 nas páginas testadas; aparece em outros departamentos |
+
+Consequência: **coletar outra filial não muda preço nenhum**, só `available`/`stock`. Por isso o
+`collect()` continua sendo uma loja (Hortolândia/CT39) e a coleta multi-loja ficou em
+`collect_region()` — **de propósito sem o nome `collect_all()`**, que é o protocolo que
+`app/jobs/tasks.py` procura para trocar o agendador de uma loja para N (a CLI expõe via
+`--region campinas|rmc`).
+
+Estrutura da oferta do app (payload real, produto 1007):
+
+```json
+"promotions": [
+  {"template": "DESCONTOU_PLUS", "price": 4.99,
+   "restriction": {"title": "Cliente APP pagando com o Cartão Tenda",
+                   "rules": [{"type": "PERIOD_OF_VALIDITY"}, {"type": "CARTAO_TENDA"}]}},
+  {"template": "DESCONTOU", "price": 5.59,
+   "restriction": {"title": "Cliente APP", "rules": [{"type": "PERIOD_OF_VALIDITY"}]}}
+]
+```
+
+O `promotion` (singular) que o coletor antigo lia **não existe mais** na listagem de categorias —
+era o motivo de o catálogo sair praticamente sem oferta.
+
+### 13.6 Implementação
+
+`app/catalog/tenda.py`:
+
+* `_app_promotions()` lê `promotions[]`, usa o `template` como tag (`app:descontou`,
+  `app:descontou_plus`) e a regra `CARTAO_TENDA` (com fallback pelo sufixo `PLUS`) para separar o
+  preço do cartão.
+* `sales_price` = **menor** preço do app que não exige o Cartão Tenda; o preço de gôndola vira
+  `regular_price`; o preço do cartão entra como `TierPrice(condition="app-cartao")` — mesma
+  semântica usada no Atacadão (`finalPrice` → `sales_price`, `finalCardPrice` → tier).
+* `wholesalePrices[]` continua virando tier de quantidade (`minQuantity`).
+* `branches()`, `resolve_zip()`, `find_stores()` (`/public/branch/all` + `/public/branch/zip`),
+  `collect_many()` (sequencial, ordenado por `collected_at`), `collect()` (loja padrão) e
+  `collect_region(cities)` (opt-in, fora do agendador).
+* `store` do payload ganhou `branch_id`, `store_id` (`tenda:46`), `store_code` (`CT39`) e
+  `sales_channel` (`tenda-app`), que é o que o ingest v2 usa para casar `collection_targets`.
+
+CLI:
+
+```powershell
+python -m app.cli tenda-catalog                            # Hortolândia/CT39 (padrão)
+python -m app.cli tenda-catalog --branch 5 --branch 40      # lojas específicas
+python -m app.cli tenda-catalog --region campinas           # RMC (7 lojas)
+python -m app.cli tenda-catalog --region rmc                # RMC + Itu/Jundiaí/Salto/Piracicaba
+```
+
+Scripts novos: `scripts/probe_tenda_app.py` (rotas + comparativo), `scripts/verify_tenda_app.py`
+(varredura + relatório em `artifacts/tenda-app-sweep`).
+
+### 13.7 Varredura completa (Hortolândia/CT39, 2026-10-15)
+
+```powershell
+python scripts\verify_tenda_app.py --direct --branch 46
+```
+
+| Métrica | Valor |
+|---|---|
+| SKUs únicos | **8.776** (soma de `countProducts` dos 16 departamentos = 11.755; dedup por id) |
+| Com preço | 8.776 (100%) |
+| Disponíveis na filial CT39 | 5.911 (2.865 sem estoque naquela loja) |
+| Com desconto sobre a gôndola | **805** |
+| Oferta do app (`DESCONTOU`) | 561 |
+| Oferta do Cartão Tenda (`DESCONTOU_PLUS`) | 256 |
+| Oferta só no campo legado `promotion` | **268** |
+| **Ofertas que o coletor antigo perdia** | **537** (só existem em `promotions[]`) |
+| Erros / páginas perdidas | 0 |
+
+Exemplos: `Tira Manchas Vanish` gôndola 72,49 → app 30,99 → app+cartão 29,99;
+`Pneu EVO 185/70 R14` 629,90 → 579,90; `Água Mineral Select 510ml` 0,99 → 0,89.
+
+Ou seja: a coleta multi-loja não traria preço novo (preço é da rede), mas ler o campo certo **trouxe
+537 ofertas que não existiam no catálogo**.
+
+E a prova em escala de que o preço é da rede — três filiais coletadas de verdade
+(`python scripts\verify_tenda_app.py --direct --region campinas --limit-stores 3`):
+
+| Filial | SKUs | Com preço | Com desconto | Oferta app | Oferta cartão | Disponíveis |
+|---|---|---|---|---|---|---|
+| CT03 Amoreiras – Campinas (5) | 8.776 | 8.776 | 805 | 561 | 256 | 6.159 |
+| CAMP Ceasa – Campinas (40) | 8.776 | 8.776 | 805 | 561 | 256 | 6.281 |
+| CT39 Hortolândia (46) | 8.776 | 8.776 | 805 | 561 | 256 | 5.911 |
+| **Divergências de preço** | — | — | **0** | **0** | **0** | 6.571 SKUs com estoque diferente |
+
+### 13.8 O que não fazer no Tenda
+
+* **Não** coletar as 45 filiais "porque tem a rota": o preço é idêntico, o volume é 45×.
+* **Não** confiar em `availability`/`status` do produto: `available` é derivado do
+  `inventory[]` da filial (mesma armadilha do `status` do Atacadão, §7.3).
+* **Não** trocar `api.tendaatacado.com.br` por um proxy sem necessidade: a WAF (Azion) bloqueia o
+  IP da Oracle, não o do dev — `scripts/verify_tenda_app.py --direct` ignora o `TENDA_PROXY_URL`
+  local, e a constante do coletor continua honrando o proxy em produção.
+
 
 
 

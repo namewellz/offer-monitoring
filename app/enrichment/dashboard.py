@@ -21,6 +21,9 @@ RETAILER_LABELS = {
     "tenda": "Tenda",
     "sao-vicente": "São Vicente",
     "max-atacadista": "Max",
+    "dalben": "Dalben",
+    "spani": "Spani",
+    "pague-menos": "Pague Menos",
 }
 
 

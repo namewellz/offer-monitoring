@@ -547,3 +547,33 @@ class InvalidBrand(_BigIntId, Base):
     reason: Mapped[str | None] = mapped_column(Text)
     department_scope: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CanonicalRefinement(_BigIntId, Base):
+    """An open canon row attached to an A1 key by one refinement stage.
+
+    Canon coverage columns stay as canon-3.0 wrote them. Dropping this table
+    removes the refinement.
+    """
+
+    __tablename__ = "canonical_refinements"
+    normalized_product_version_id: Mapped[int] = mapped_column(
+        ForeignKey("normalized_product_versions.id")
+    )
+    anchor_match_key: Mapped[str] = mapped_column(Text)
+    anchor_version_id: Mapped[int] = mapped_column(
+        ForeignKey("normalized_product_versions.id")
+    )
+    stage: Mapped[str] = mapped_column(Text)
+    evidence: Mapped[dict] = mapped_column(JSONB, default=dict)
+    refiner_version: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    __table_args__ = (
+        UniqueConstraint(
+            "normalized_product_version_id",
+            "refiner_version",
+            name="uq_canonical_refinements_version",
+        ),
+    )

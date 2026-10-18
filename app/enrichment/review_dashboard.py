@@ -12,6 +12,7 @@ from html import escape
 from typing import Any
 
 from app.enrichment.dashboard import RETAILER_LABELS
+from app.enrichment.canonical_queue import render_canonical_queue
 from app.enrichment.department_review_dashboard import dept_selector
 
 _PAGE_CSS = """
@@ -190,7 +191,7 @@ def _metric(value: Any, label: str, hint: str = "") -> str:
     )
 
 
-def render_butcher_review(payload: dict[str, Any]) -> str:
+def render_butcher_review(payload: dict[str, Any], queue: dict[str, Any] | None = None) -> str:
     families = payload["families"]
     excluded = payload.get("excluded") or {}
     excluded_total = payload.get("excluded_total") or sum(excluded.values())
@@ -234,6 +235,7 @@ def render_butcher_review(payload: dict[str, Any]) -> str:
 <a href="/catalog/cuts">Comparativo R$/kg</a>
 <a class="active" href="/catalog/butcher-review">Revisão de classificação</a>
 <a href="/catalog/categories">Categorias</a>
+<a href="/catalog/brands">Marcas</a>
 <a href="/shopping-lists">Lista</a>
 </nav>
 <section class="hero"><div><span class="eyebrow">Motor determinístico · v2</span>
@@ -256,6 +258,7 @@ são ignoradas na revisão.</p>
 {_metric(excluded_total, 'Excluídos pelo parser', 'não-carne / preparados / vegano')}
 </div>
 {llm_strip}
+{render_canonical_queue(queue)}
 <div class="review-tools">
 {dept_selector('Açougue')}
 <div class="review-search">

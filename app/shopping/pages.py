@@ -317,7 +317,7 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
 (function(){
   const LIST_ID = @@LIST_ID@@;
   const ROWS = @@ROWS@@;
-  const LABEL = {'arena-atacado':'Arena','goodbom':'GoodBom','atacadao':'Atacadão','savegnago':'Savegnago','davitta':'Davitta','assai':'Assaí','tenda':'Tenda','sao-vicente':'São Vicente','max-atacadista':'Max'};
+  const LABEL = {'arena-atacado':'Arena','goodbom':'GoodBom','atacadao':'Atacadão','savegnago':'Savegnago','davitta':'Davitta','assai':'Assaí','tenda':'Tenda','sao-vicente':'São Vicente','max-atacadista':'Max','dalben':'Dalben','spani':'Spani','pague-menos':'Pague Menos'};
   const fmt = v => 'R$ ' + Number(v).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
   const key = (d,c,f) => d + '|' + c + '|' + f;
   const label = s => LABEL[s] || s;

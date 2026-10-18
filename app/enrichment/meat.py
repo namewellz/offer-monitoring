@@ -266,6 +266,18 @@ def _match_any(tokens: str, rules: tuple[tuple[str, tuple[str, ...]], ...]) -> s
     return None
 
 
+def plain_coxa_sobrecoxa(parsed: ParsedMeat, raw_name: str) -> bool:
+    """False for breaded or 'a passarinho' packs of the same cut.
+
+    Those are a different product. Keeping them in the coxa/sobrecoxa price
+    row lets the cheaper pack hide the plain piece.
+    """
+    if parsed.cut != "coxa_com_sobrecoxa":
+        return True
+    folded = (raw_name or "").casefold()
+    return "passarinho" not in folded and "empan" not in folded
+
+
 def parse_meat(raw_name: str) -> ParsedMeat:
     folded = fold(raw_name)
     tokens = ascii_slug(raw_name)
@@ -342,6 +354,12 @@ def parse_meat(raw_name: str) -> ParsedMeat:
             result.species = "suino"
     if result.cut == "frango_inteiro" and result.species is None:
         result.species = "frango"
+    # "Coxa E Sobrecoxa 1kg" omits the bird. That pair is chicken unless the
+    # name names another species. Without this the item is dropped from the
+    # shopping-list price combo.
+    if result.cut == "coxa_com_sobrecoxa" and result.species is None:
+        if not re.search(r"\b(pato|peru|codorna)\b", expanded):
+            result.species = "frango"
 
     # Bacon as a cut only makes sense for pork. "bacon" elsewhere is a flavour
     # or an ingredient of another product ("isca de frango swift bacon").

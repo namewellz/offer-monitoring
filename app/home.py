@@ -11,6 +11,7 @@ from typing import Any
 
 from sqlalchemy import func, select
 
+from app.canonical.stats import coverage_snapshot, format_int
 from app.catalog.v2.read import latest_runs
 from app.core.timezone import to_local
 from app.db.models_v2 import ShoppingList
@@ -103,6 +104,12 @@ SECTIONS: list[dict[str, Any]] = [
                 "href": "/catalog/categories",
             },
             {
+                "icon": "🏷️",
+                "title": "Dicionário de marcas",
+                "text": "Aprove, bloqueie ou crie apelidos. A decisão fica guardada para a próxima versão do normalizador.",
+                "href": "/catalog/brands",
+            },
+            {
                 "icon": "🔬",
                 "title": "Revisão do Açougue",
                 "text": "Confira os cortes classificados pela IA.",
@@ -177,6 +184,7 @@ def render_home(db: Any) -> str:
         (run.get("collected_at") for run in runs if run.get("collected_at")), default=None
     )
     lists_count = int(db.scalar(select(func.count()).select_from(ShoppingList)) or 0)
+    coverage = coverage_snapshot(db)
 
     sections = "".join(
         "<section><div class='sec-head'><h2>"
@@ -203,7 +211,7 @@ def render_home(db: Any) -> str:
 <header class="topbar"><div class="inner">
 <a class="brand" href="/"><span class="mark">OM</span><span>Offer Monitor<small>Preços & Compras</small></span></a>
 <nav class="nav">
-<a href="/catalog">Catálogo</a><a href="/shopping-lists">Lista de compras</a>
+<a href="/catalog">Catálogo</a><a href="/catalog/brands">Marcas</a><a href="/shopping-lists">Lista de compras</a>
 <a href="/catalog/produce-prices">Hortifrúti</a><a href="/catalog/cuts">Açougue</a>
 <a href="/catalog/updates">Atualizações</a></nav></div></header>
 <section class="hero"><div class="inner">
@@ -213,6 +221,8 @@ lista de compras. Tudo em um só lugar — escolha abaixo por onde começar.</p>
 <div class="metrics">
 {_metric("supermercados ativos", f"{supermarkets}")}
 {_metric("produtos monitorados", f"{products:,}".replace(",", "."))}
+{_metric("cobertura canônica", coverage["covered_pct"])}
+{_metric("fila de revisão", format_int(coverage["review"]))}
 {_metric("listas de compras", f"{lists_count}")}
 {_metric("última coleta", last_label)}
 </div></div></section>

@@ -158,11 +158,23 @@ docker compose exec api python -m app.cli assai-catalog --output /data/catalog/a
 
 O Tenda Atacado usa a API pública do e-commerce com o mesmo CEP de referência dos demais
 coletores (`13184-222`). A disponibilidade e o estoque são filtrados para a filial `CT39`
-(`Tenda Hortolândia`), enquanto promoções públicas, preços por quantidade e ofertas do app
-são preservados no histórico:
+(`Tenda Hortolândia`), enquanto o preço de gôndola, as ofertas do app (`promotions[]`, templates
+`DESCONTOU` e `DESCONTOU_PLUS`) e os preços por quantidade são preservados no histórico. O app
+mobile do Tenda (`com.root.tendadrive.Activities`) consome **a mesma** base
+(`api.tendaatacado.com.br/api`) — ver `docs/REVERSE-ENGINEERING-APP-API.md` § 13:
 
 ```bash
 docker compose exec api python -m app.cli tenda-catalog --output /data/catalog/tenda
+```
+
+Como o preço do Tenda é o mesmo em toda a rede (`?branchId=` é ignorado e o payload traz o
+`inventory[]` das 45 filiais), a coleta padrão é de uma loja. Para disponibilidade por loja existe
+o modo multi-loja, opt-in e fora do agendador:
+
+```bash
+docker compose exec api python -m app.cli tenda-catalog --region campinas   # RMC (7 lojas)
+docker compose exec api python -m app.cli tenda-catalog --branch 5 --branch 40
+docker compose exec api python -m app.cli tenda-catalog --region rmc        # RMC + Itu/Jundiaí/Salto/Piracicaba
 ```
 
 Quando o IP de saída do servidor é bloqueado pelo WAF da Azion, a coleta do Tenda pode usar

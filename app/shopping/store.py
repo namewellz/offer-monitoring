@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.classification.canonical import equivalent_cut_category
 from app.db.models_v2 import ShoppingList, ShoppingListItem
 
 
@@ -54,6 +55,14 @@ def list_lists(db: Session) -> list[dict[str, Any]]:
     return out
 
 
+def _match_line(row: ShoppingListItem, department: str, category: str, form: str) -> bool:
+    return (
+        row.department == department
+        and row.form == form
+        and equivalent_cut_category(row.category) == category
+    )
+
+
 def add_item(
     db: Session,
     list_id: int,
@@ -63,14 +72,20 @@ def add_item(
     retailer: str | None = None,
     qty: Any = 1,
 ) -> dict[str, Any]:
-    existing = db.execute(
+    department = (department or "Açougue").strip() or "Açougue"
+    category = equivalent_cut_category((category or "").strip())
+    form = (form or "").strip()
+    candidates = db.execute(
         select(ShoppingListItem).where(
             ShoppingListItem.list_id == list_id,
             ShoppingListItem.department == department,
-            ShoppingListItem.category == category,
             ShoppingListItem.form == form,
         )
-    ).scalar_one_or_none()
+    ).scalars().all()
+    existing = next(
+        (row for row in candidates if _match_line(row, department, category, form)),
+        None,
+    )
     if existing is None:
         obj = ShoppingListItem(
             list_id=list_id,
@@ -83,6 +98,10 @@ def add_item(
         db.add(obj)
     else:
         obj = existing
+        if obj.category != category and not any(
+            row.category == category and row.id != obj.id for row in candidates
+        ):
+            obj.category = category
         if retailer:
             obj.retailer_slug = retailer
         obj.qty = _qty(qty)
@@ -136,7 +155,7 @@ def _to_dict(row: ShoppingListItem) -> dict[str, Any]:
     return {
         "id": row.id,
         "department": row.department,
-        "category": row.category,
+        "category": equivalent_cut_category(row.category),
         "form": row.form,
         "retailer": row.retailer_slug,
         "qty": float(row.qty),
@@ -157,21 +176,29 @@ def switch_unit(db: Session, item_id: int, form: str) -> dict[str, Any] | None:
     form = (form or "").strip()
     if not form or form == obj.form:
         return _to_dict(obj)
-    conflict = db.execute(
-        select(ShoppingListItem).where(
-            ShoppingListItem.list_id == obj.list_id,
-            ShoppingListItem.department == obj.department,
-            ShoppingListItem.category == obj.category,
-            ShoppingListItem.form == form,
-            ShoppingListItem.id != obj.id,
-        )
-    ).scalar_one_or_none()
+    category = equivalent_cut_category(obj.category)
+    conflict = next(
+        (
+            row
+            for row in db.execute(
+                select(ShoppingListItem).where(
+                    ShoppingListItem.list_id == obj.list_id,
+                    ShoppingListItem.department == obj.department,
+                    ShoppingListItem.form == form,
+                    ShoppingListItem.id != obj.id,
+                )
+            ).scalars().all()
+            if equivalent_cut_category(row.category) == category
+        ),
+        None,
+    )
     if conflict is not None:
         db.delete(obj)
         db.commit()
         db.refresh(conflict)
         return _to_dict(conflict)
     obj.form = form
+    obj.category = category
     # volta para a origem mais barata da nova unidade (auto na UI)
     obj.retailer_slug = None
     db.commit()
@@ -189,7 +216,7 @@ def items(db: Session, list_id: int) -> list[dict[str, Any]]:
         {
             "id": row.id,
             "department": row.department,
-            "category": row.category,
+            "category": equivalent_cut_category(row.category),
             "form": row.form,
             "retailer": row.retailer_slug,
             "qty": float(row.qty),

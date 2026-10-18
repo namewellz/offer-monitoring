@@ -114,14 +114,7 @@ def run_catalog_collection(retailer_slug: str) -> dict | None:
             errors.extend(catalog.get("collection_errors", []))
             runs.append(str(run.id))
         outcome = run.status.value if run is not None else "FAILED"
-        # pós-coleta: agenda a classificação incremental dos produtos novos
-        if outcome in ("SUCCESS", "PARTIAL_SUCCESS"):
-            from app.jobs.queue import enqueue_classify_new
-
-            try:
-                enqueue_classify_new(retailer_slug=retailer_slug)
-            except Exception:
-                pass
+        enqueue_post_collection(retailer_slug, outcome)
         return {
             "run_id": str(run.id) if run is not None else None,
             "status": outcome,
@@ -129,6 +122,48 @@ def run_catalog_collection(retailer_slug: str) -> dict | None:
             "stores": len(catalogs),
             "runs": runs,
         }
+    finally:
+        lock.release()
+
+
+def enqueue_post_collection(retailer_slug: str, outcome: str) -> None:
+    """After a saved collection, queue normalization and then classification.
+
+    Each enqueue is isolated. A failure here does not roll back the collection,
+    and a failure of one job does not stop the other from being queued.
+    Normalization stays off unless ``canonical_enabled`` is set.
+    """
+    if outcome not in ("SUCCESS", "PARTIAL_SUCCESS"):
+        return
+    if get_settings().canonical_enabled:
+        try:
+            from app.jobs.queue import enqueue_normalize_new
+
+            enqueue_normalize_new(retailer_slug)
+        except Exception:
+            pass
+    try:
+        from app.jobs.queue import enqueue_classify_new
+
+        enqueue_classify_new(retailer_slug=retailer_slug)
+    except Exception:
+        pass
+
+
+def run_normalize_new(retailer_slug: str) -> dict | None:
+    """Normalize this retailer's new or changed product versions. No network, no LLM."""
+    if retailer_slug not in CATALOG_COLLECTORS:
+        raise ValueError(f"Unknown catalog retailer: {retailer_slug}")
+    if not get_settings().canonical_enabled:
+        return {"skipped": True, "reason": "canonical_disabled", "retailer": retailer_slug}
+    lock = _locked(f"normalize:new:{retailer_slug}")
+    if not lock.acquire(blocking=False):
+        return None
+    try:
+        from app.canonical.incremental import normalize_retailer
+
+        with SessionLocal() as db:
+            return normalize_retailer(db, retailer_slug)
     finally:
         lock.release()
 

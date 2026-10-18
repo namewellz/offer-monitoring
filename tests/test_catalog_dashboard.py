@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from app.catalog.dashboard import render_catalog_dashboard
+from app.catalog.dashboard import render_catalog_csv, render_catalog_dashboard
 
 
 def test_catalog_dashboard_has_mobile_and_manual_update_controls() -> None:
@@ -108,3 +108,33 @@ def test_catalog_dashboard_has_offers_tab_and_discount() -> None:
     assert 'href="/catalog?view=offers" class="active"' in html
     assert "Preço de" in html
     assert "Oferta -20.00%" in html
+    assert "Exportar CSV" in html
+    assert "view=offers" in html
+    assert "/catalog/export.csv?" in html
+
+
+def test_catalog_csv_uses_the_filtered_columns() -> None:
+    observed = datetime(2026, 8, 26, 15, tzinfo=UTC)
+    csv_text = render_catalog_csv(
+        [
+            {
+                "product": 'Arroz; "tipo 1"',
+                "brand": "Exemplo",
+                "department": "Mercearia",
+                "retailer": "Mercado",
+                "store": "Loja",
+                "regular_price": 10,
+                "previous_price": 9,
+                "current_price": 8,
+                "change_percent": -11.11,
+                "price_condition": "Preço final",
+                "observed_at": observed,
+            }
+        ],
+        "offers",
+    )
+
+    assert csv_text.startswith("\ufeff")
+    assert "preco_de;preco_atual;condicao;desconto_percentual" in csv_text
+    assert '"Arroz; ""tipo 1"""' in csv_text
+    assert "10,00;8,00;Preço final;20,00" in csv_text

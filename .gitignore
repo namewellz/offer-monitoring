@@ -30,6 +30,7 @@ artifacts/atacadao-catalog/atacadao-[0-9]*-catalog.json
 artifacts/atacadao-catalog/atacadao-[0-9]*-prices.csv
 artifacts/spani-catalog/
 artifacts/dalben-catalog/
+artifacts/tenda-*/
 
 .idea/
 .vscode/

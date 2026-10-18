@@ -10,8 +10,13 @@ from sqlalchemy.orm import Session
 
 from app.catalog.v2.read import current_listings, is_price_fresh
 from app.stores import CURRENT_FILTER
-from app.classification.canonical import canonical_map, seed_categories
+from app.classification.canonical import (
+    canonical_map,
+    equivalent_cut_category,
+    seed_categories,
+)
 from app.db.models_v2 import LlmClassification
+from app.enrichment.meat import plain_coxa_sobrecoxa
 from app.enrichment.resolver import MeatItem
 
 # tuple indexes of current_listings row
@@ -121,6 +126,10 @@ def _compute(db: Session, use_llm: bool) -> tuple[int, list[dict[str, Any]], dic
         )
         if not item.parsed.is_meat:
             continue
+        # Empanado e a passarinho não são a peça de coxa/sobrecoxa. Se entrarem
+        # na mesma linha, o mais barato deles esconde a peça (ex.: Dalben 1kg).
+        if not plain_coxa_sobrecoxa(item.parsed, item.raw_name):
+            continue
         if have_llm:
             verdict = llm.get(item.product_id)
             if verdict is None or verdict["decision"] != "accept":
@@ -136,9 +145,9 @@ def _compute(db: Session, use_llm: bool) -> tuple[int, list[dict[str, Any]], dic
             category = "Carne Moída"
         elif have_llm and (llm.get(item.product_id) or {}).get("category"):
             raw = (llm.get(item.product_id) or {})["category"]
-            category = canonical.get(raw, raw) or raw
+            category = equivalent_cut_category(canonical.get(raw, raw) or raw)
         else:
-            category = parsed.label or parsed.raw_name
+            category = equivalent_cut_category(parsed.label or parsed.raw_name)
         key = (category, form)
         row = rows.setdefault(
             key,

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 
+from app.catalog import tenda as tenda_api
 from app.catalog.arena import ArenaCatalogClient, write_catalog
 from app.catalog.assai import AssaiCatalogClient
 from app.catalog.atacadao import (
@@ -24,14 +25,13 @@ from app.catalog.persistence import (
     persist_goodbom_catalog,
     persist_maxatacadista_catalog,
     persist_saovicente_catalog,
-    persist_spani_catalog,
     persist_savegnago_catalog,
+    persist_spani_catalog,
     persist_tenda_catalog,
     reclassify_catalog_departments,
 )
 from app.catalog.saovicente import SaoVicenteCatalogClient
 from app.catalog.savegnago import SavegnagoCatalogClient
-from app.catalog.tenda import TendaCatalogClient
 from app.catalog.v2.backfill import backfill_v2
 from app.catalog.vipcommerce import SpaniCatalogClient
 from app.db.models import FlyerSource, Retailer, Store
@@ -79,14 +79,6 @@ def main() -> None:
     commands.add_parser("discover-all")
     commands.add_parser("reclassify-catalog")
     commands.add_parser("backfill-v2")
-    canonical = commands.add_parser(
-        "canonical-backfill",
-        help="normalize current source_product_versions into normalized_product_versions",
-    )
-    canonical.add_argument("--dry-run", action="store_true")
-    canonical.add_argument("--limit", type=int)
-    canonical.add_argument("--batch-size", type=int, default=2000)
-    canonical.add_argument("--report", help="write the coverage report (markdown) to this path")
     extract = commands.add_parser("extract")
     extract.add_argument("--flyer", required=True)
     extract.add_argument("--strategy")
@@ -127,6 +119,22 @@ def main() -> None:
     assai_catalog.add_argument("--output", default="artifacts/assai-catalog")
     tenda_catalog = commands.add_parser("tenda-catalog")
     tenda_catalog.add_argument("--output", default="artifacts/tenda-catalog")
+    tenda_catalog.add_argument(
+        "--region",
+        choices=["hortolandia", "campinas", "rmc"],
+        default="hortolandia",
+        help=(
+            "Lojas a coletar: só Hortolândia/CT39 (padrão, preço é o mesmo em toda a "
+            "rede), as lojas da RMC ou a RMC + cidades vizinhas. Multi-loja só muda "
+            "disponibilidade/estoque."
+        ),
+    )
+    tenda_catalog.add_argument(
+        "--branch",
+        action="append",
+        default=[],
+        help="Coleta apenas as filiais (id do branch na API) indicadas. Repetível.",
+    )
     saovicente_catalog = commands.add_parser("saovicente-catalog")
     saovicente_catalog.add_argument("--output", default="artifacts/saovicente-catalog")
     spani_catalog = commands.add_parser("spani-catalog")
@@ -157,27 +165,6 @@ def main() -> None:
         with SessionLocal() as db:
             changed = reclassify_catalog_departments(db)
         print(f"Reclassified {changed} catalog products")
-        return
-    if args.command == "canonical-backfill":
-        from app.canonical.backfill import (
-            db_group_counts,
-            render_report,
-            run_backfill,
-            write_report,
-        )
-
-        with SessionLocal() as db:
-            result = run_backfill(
-                db, dry_run=args.dry_run, limit=args.limit, batch_size=args.batch_size
-            )
-            print(
-                f"canonical-backfill: total={result['total']} selected={result['selected']} "
-                f"inserted={result['inserted']} dry_run={result['dry_run']}"
-            )
-            counts = result["corpus_groups"] if args.dry_run else db_group_counts(db)
-            if args.report:
-                write_report(Path(args.report), render_report(counts, result["items"]))
-                print(f"report: {args.report}")
         return
     if args.command == "backfill-v2":
         with SessionLocal() as db:
@@ -335,14 +322,55 @@ def main() -> None:
         print(csv_path)
         return
     if args.command == "tenda-catalog":
-        catalog = asyncio.run(TendaCatalogClient().collect())
-        json_path, csv_path = write_catalog(catalog, Path(args.output), prefix="tenda")
+        client = tenda_api.TendaCatalogClient()
+        if args.branch:
+            known = {store["branch_id"]: store for store in asyncio.run(client.branches())}
+            unknown = [str(branch) for branch in args.branch if str(branch) not in known]
+            if unknown:
+                raise SystemExit(f"Filial não encontrada na API do Tenda: {unknown}")
+            stores = [known[str(branch)] for branch in args.branch]
+        elif args.region == "hortolandia":
+            stores = [tenda_api.default_store()]
+        else:
+            cities = (
+                tenda_api.CAMPINAS_CITIES
+                if args.region == "campinas"
+                else tenda_api.REGION_CITIES
+            )
+            stores = asyncio.run(client.find_stores(cities))
+            if not stores:
+                raise SystemExit(f"Nenhuma filial Tenda encontrada para {args.region}")
+        catalogs = asyncio.run(client.collect_many(stores))
+        total_skus = 0
+        total_priced = 0
+        total_available = 0
+        total_offers = 0
         with SessionLocal() as db:
-            run = persist_tenda_catalog(db, catalog)
-        print(f"Collected {catalog['product_count']} unique Tenda products")
-        print(f"Persisted catalog run {run.id} at {run.collected_at.isoformat()}")
-        print(json_path)
-        print(csv_path)
+            for index, catalog in enumerate(catalogs):
+                prefix = "tenda" if len(catalogs) == 1 else f"tenda-{index:02d}"
+                json_path, csv_path = write_catalog(catalog, Path(args.output), prefix=prefix)
+                run = persist_tenda_catalog(db, catalog)
+                priced = sum(
+                    1 for product in catalog["products"] if product.get("sales_price") is not None
+                )
+                available = sum(1 for product in catalog["products"] if product.get("available"))
+                offers = sum(1 for product in catalog["products"] if product.get("tier_prices"))
+                total_skus += len(catalog["products"])
+                total_priced += priced
+                total_available += available
+                total_offers += offers
+                print(
+                    f"[{catalog['store']['name']} filial {catalog['store']['branch_id']}] "
+                    f"{len(catalog['products'])} SKUs, {priced} com preço, "
+                    f"{available} disponíveis, {offers} com oferta -> run {run.id}"
+                )
+                print(json_path)
+                print(csv_path)
+        if len(catalogs) > 1:
+            print(
+                f"TOTAL {len(catalogs)} lojas: {total_skus} SKUs, {total_priced} com preço, "
+                f"{total_available} disponíveis, {total_offers} com oferta"
+            )
         return
     if args.command == "saovicente-catalog":
         catalog = asyncio.run(SaoVicenteCatalogClient().collect())

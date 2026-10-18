@@ -33,3 +33,23 @@ def test_update_dashboard_groups_failures_by_source_and_lists_each_page() -> Non
     assert "category=11 page=4" in html
     assert "HTTP 500" in html
     assert "Parcial" in html
+    assert "Cobertura" not in html
+
+
+def test_update_dashboard_shows_canonical_coverage() -> None:
+    html = render_update_dashboard(
+        [],
+        coverage={
+            "total": 10,
+            "covered": 8,
+            "covered_pct": "80,0%",
+            "review": 2,
+            "normalizer_version": "canon-3.0",
+            "by_retailer": [
+                {"name": "GoodBom", "total": 10, "covered_pct": "80,0%", "review": 2}
+            ],
+        },
+    )
+    assert "Cobertura 80,0%" in html
+    assert "GoodBom" in html
+    assert "Fila B1–B4 e R" in html

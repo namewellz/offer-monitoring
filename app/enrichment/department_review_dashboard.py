@@ -5,6 +5,8 @@ from __future__ import annotations
 from html import escape
 from typing import Any
 
+from app.enrichment.canonical_queue import render_canonical_queue
+
 
 def _br(n: int) -> str:
     return f"{n:,}".replace(",", ".")
@@ -27,7 +29,9 @@ def dept_selector(department: str) -> str:
     )
 
 
-def render_department_review_page(data: dict[str, Any]) -> str:
+def render_department_review_page(
+    data: dict[str, Any], queue: dict[str, Any] | None = None
+) -> str:
     department = data["department"]
     groups = data["groups"]
     rejected = data["rejected_rows"]
@@ -116,7 +120,8 @@ ul.samples .r{{display:inline-block;font-size:10.5px;font-weight:700;color:var(-
 <a href="/catalog/dept-prices?department={escape(department)}">Comparativo de preços</a>
 <a class="active" href="/catalog/butcher-review?department={escape(department)}">Revisão</a>
 <a href="/catalog/categories?department={escape(department)}">Categorias</a>
+<a href="/catalog/brands">Marcas</a>
 <a href="/shopping-lists">Lista</a>
 </nav>
-{card}{chips}{table}{rejected_html}
+{card}{chips}{render_canonical_queue(queue)}{table}{rejected_html}
 </main></body></html>"""

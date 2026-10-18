@@ -61,7 +61,39 @@ def _execution_html(execution: dict[str, Any]) -> str:
     )
 
 
-def render_update_dashboard(sources: list[dict[str, Any]]) -> str:
+def _coverage_html(coverage: dict[str, Any] | None) -> str:
+    if not coverage:
+        return ""
+    rows = []
+    for retailer in coverage.get("by_retailer") or []:
+        rows.append(
+            "<tr>"
+            f"<td>{escape(retailer['name'])}</td>"
+            f"<td>{_number(retailer['total'])}</td>"
+            f"<td>{escape(retailer['covered_pct'])}</td>"
+            f"<td>{_number(retailer['review'])}</td>"
+            "</tr>"
+        )
+    body = "".join(rows) or "<tr><td colspan='4'>Nenhuma versão normalizada ainda.</td></tr>"
+    return (
+        '<section class="source-log"><header class="source-heading"><div>'
+        '<span class="source-name">Canônico</span>'
+        f"<h2>Cobertura {escape(str(coverage.get('covered_pct') or '—'))}</h2>"
+        f"<p>{_number(coverage.get('covered'))} de {_number(coverage.get('total'))} "
+        f"em A1+A2 · fila de revisão {_number(coverage.get('review'))} "
+        f"({escape(str(coverage.get('normalizer_version') or ''))})</p></div></header>"
+        '<div class="execution-list"><table style="width:100%;border-collapse:collapse;font-size:13px">'
+        "<thead><tr><th style='text-align:left;padding:10px 0'>Rede</th>"
+        "<th style='text-align:right'>Itens</th><th style='text-align:right'>A1+A2</th>"
+        "<th style='text-align:right'>Fila B1–B4 e R</th></tr></thead>"
+        f"<tbody>{body}</tbody></table></div></section>"
+    )
+
+
+def render_update_dashboard(
+    sources: list[dict[str, Any]],
+    coverage: dict[str, Any] | None = None,
+) -> str:
     total_items = sum(int(source.get("latest_product_count") or 0) for source in sources)
     latest = max(
         (source["latest_collected_at"] for source in sources if source.get("latest_collected_at")),
@@ -106,4 +138,4 @@ def render_update_dashboard(sources: list[dict[str, Any]]) -> str:
 <article><span>Itens nas últimas coletas</span><strong>{_number(total_items)}</strong></article>
 <article><span>Fontes com alerta recente</span><strong>{sources_with_failure}</strong></article>
 <article><span>Última atividade</span><strong class="metric-date">{_date(latest)}</strong></article>
-</section><div class="source-logs">{"".join(source_cards)}</div></main></body></html>"""
+</section><div class="source-logs">{_coverage_html(coverage)}{"".join(source_cards)}</div></main></body></html>"""

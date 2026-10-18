@@ -110,6 +110,7 @@ Start-Process powershell -Verb RunAs -ArgumentList '-Command',
 |---|---|
 | `scripts/scan_app_bundle.py` | bundle de app híbrido: hosts, rotas (com template literals), chaves de config |
 | `scripts/grep_bundle.py` | grep com contexto em bundle minificado |
+| `scripts/extract_strings.py` | dump de strings de binário (bundle Hermes, `.so`, dex, IPA). Aceita **diretório** (`--min --grep --unique --out`): rode nos `classes*.dex` mesmo quando existe bundle JS, porque a URL da API pode estar só no lado nativo (§ app Tenda) |
 | `scripts/probe_app_api_shape.py` | limites de paginação e shape do payload |
 | `scripts/probe_departments.py` | prova de completude (soma por categoria == total) |
 | `scripts/probe_token_ttl.py` | TTL, refresh e claims de um token de app |
@@ -121,6 +122,7 @@ Start-Process powershell -Verb RunAs -ArgumentList '-Command',
 | `scripts/atacadao_app_api.py` | cliente de referência (só `urllib`) de uma API de app |
 | `scripts/patch_apk.py` + `scripts/build_patched_apk.ps1` | patch/reassinatura do APK |
 | `scripts/ui_taps.py` | automação de UI via uiautomator |
+| `scripts/probe_tenda_app.py` / `scripts/probe_tenda_branch.py` / `scripts/verify_tenda_app.py` | caso Tenda: rotas + comparativo de `branchId` + varredura com relatório |
 | `scripts/mitm_capture.py`, `scripts/mitm_rewrite_rc.py`, `scripts/api_logger_proxy.py` | captura, reescrita de Remote Config, proxy reverso que loga em claro |
 
 ## Validar um coletor novo contra o banco do compose
