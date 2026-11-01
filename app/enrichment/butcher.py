@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+import threading
 import time
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import select
@@ -30,7 +33,17 @@ _IDX = {
     "basis": 16,
 }
 
-_CACHE: dict[str, Any] = {"ts": 0.0, "payload": None, "use_llm": True, "filter": None}
+log = logging.getLogger(__name__)
+
+# Cache por (filtro de loja, use_llm): um ``?rede=`` ou ``?all=1`` não despeja o
+# padrão. Cada entrada: {"ts", "payload"}.
+_CACHE: dict[tuple[str, bool], dict[str, Any]] = {}
+_MAX_ENTRIES = 16
+# Single-flight: só um recálculo por vez (a VM tem 2 CPUs); quem chega depois
+# espera e reaproveita o resultado em vez de recalcular em paralelo.
+_LOCK = threading.Lock()
+_REFRESHING: set[tuple[str, bool]] = set()
+_STATE_LOCK = threading.Lock()
 
 # Preços trocam a cada coleta agendada; 5min evita recálculo de ~13s a cada
 # requisição isolada sem sacrificar frescor (o warm-up mantém quente).
@@ -99,16 +112,36 @@ def coarse_form(parsed: Any) -> str:
     return "peca_kg"
 
 
-def _compute(db: Session, use_llm: bool) -> tuple[int, list[dict[str, Any]], dict[str, Any]]:
+def _compute(
+    db: Session,
+    use_llm: bool,
+    rows: Sequence[tuple[Any, ...]] | None = None,
+    release: bool = False,
+) -> tuple[int, list[dict[str, Any]], dict[str, Any]]:
+    """Compute the comparison.
+
+    ``rows`` may be a pre-fetched ``current_listings(fresh_only=True,
+    accepted_only=True)`` result; it is only used when LLM verdicts are active,
+    because then non-accepted and stale rows are discarded below anyway. Without
+    verdicts every listing counts, so the rows are fetched here unfiltered by
+    acceptance. ``release`` ends the transaction once the DB reads are done
+    (only for sessions owned by the caller).
+    """
     llm = _llm_index(db) if use_llm else {}
     have_llm = bool(llm)
     canonical: dict[str, str] = {}
     if have_llm:
         seed_categories(db)
         canonical = canonical_map(db)
+    if rows is None or not have_llm:
+        # fresh_only/accepted_only só pré-filtram no SQL o que o laço abaixo já
+        # descarta (preço velho; produto sem accept quando há veredictos).
+        rows = current_listings(db, fresh_only=True, accepted_only=have_llm)
+    if release:
+        db.rollback()
 
     items: list[MeatItem] = []
-    for row in current_listings(db):
+    for row in rows:
         raw_name = row[_IDX["raw_name"]]
         effective = row[_IDX["effective_cents"]]
         if effective is None or effective <= 0:
@@ -187,26 +220,99 @@ def _compute(db: Session, use_llm: bool) -> tuple[int, list[dict[str, Any]], dic
     return len(items), groups, {"llm_active": have_llm, "accepted_products": len(llm)}
 
 
+def _cache_key(use_llm: bool) -> tuple[str, bool]:
+    return (CURRENT_FILTER.get().key, use_llm)
+
+
+def _is_fresh(entry: dict[str, Any] | None) -> bool:
+    return entry is not None and time.time() - entry["ts"] <= _TTL
+
+
+def _store(key: tuple[str, bool], payload: dict[str, Any]) -> dict[str, Any]:
+    entry = {"ts": time.time(), "payload": payload}
+    _CACHE[key] = entry
+    while len(_CACHE) > _MAX_ENTRIES:
+        oldest = min(_CACHE, key=lambda k: _CACHE[k]["ts"])
+        _CACHE.pop(oldest, None)
+    return entry
+
+
+def _refresh(
+    use_llm: bool,
+    db: Session | None = None,
+    rows: Sequence[tuple[Any, ...]] | None = None,
+    force: bool = False,
+    release: bool = False,
+) -> dict[str, Any]:
+    """Recompute under the single-flight lock for the current store filter.
+
+    With ``db=None`` a private session is opened (and its transaction released
+    as soon as the reads finish). If another thread refreshed the same key while
+    we waited for the lock, its fresh result is reused.
+    """
+    key = _cache_key(use_llm)
+    with _LOCK:
+        entry = _CACHE.get(key)
+        if not force and _is_fresh(entry):
+            return entry
+        if db is None:
+            from app.db.session import SessionLocal
+
+            with SessionLocal() as own:
+                items, groups, info = _compute(own, use_llm, rows=rows, release=True)
+        else:
+            items, groups, info = _compute(db, use_llm, rows=rows, release=release)
+        return _store(key, {"items": items, "groups": groups, "info": info})
+
+
+def _refresh_in_background(use_llm: bool) -> None:
+    flt = CURRENT_FILTER.get()
+    key = (flt.key, use_llm)
+    with _STATE_LOCK:
+        if key in _REFRESHING:
+            return
+        _REFRESHING.add(key)
+
+    def run() -> None:
+        token = CURRENT_FILTER.set(flt)
+        try:
+            _refresh(use_llm)
+        except Exception:  # noqa: BLE001 - nunca derruba a thread de fundo
+            log.exception("butcher cache background refresh failed")
+        finally:
+            CURRENT_FILTER.reset(token)
+            with _STATE_LOCK:
+                _REFRESHING.discard(key)
+
+    threading.Thread(target=run, daemon=True, name="butcher-refresh").start()
+
+
 def butcher_comparison(
-    db: Session, limit: int = 300, use_llm: bool = True
+    db: Session,
+    limit: int = 300,
+    use_llm: bool = True,
+    rows: Sequence[tuple[Any, ...]] | None = None,
+    release: bool = False,
 ) -> dict[str, Any]:
     """Price rows per (category, sale-form) with R$/kg per source (TTL cached).
 
     When ``use_llm`` and online classifications exist, only products accepted by
     the LLM are considered and each row carries its ``llm_category``.
+
+    Cache: fresh entry -> returned; stale entry -> returned immediately while a
+    single background refresh recomputes it; no entry -> computed now (one at a
+    time). When the caller passes pre-fetched ``rows`` a stale entry is
+    recomputed synchronously from them (no extra query). ``release`` (only for
+    sessions owned by the caller) ends the transaction after the DB reads.
     """
-    if (
-        _CACHE["payload"] is None
-        or time.time() - _CACHE["ts"] > _TTL
-        or _CACHE["use_llm"] != use_llm
-        or _CACHE["filter"] != CURRENT_FILTER.get().key
-    ):
-        items, groups, info = _compute(db, use_llm)
-        _CACHE["payload"] = {"items": items, "groups": groups, "info": info}
-        _CACHE["use_llm"] = use_llm
-        _CACHE["filter"] = CURRENT_FILTER.get().key
-        _CACHE["ts"] = time.time()
-    payload = _CACHE["payload"]
+    key = _cache_key(use_llm)
+    entry = _CACHE.get(key)
+    if not _is_fresh(entry):
+        if entry is not None and rows is None:
+            _refresh_in_background(use_llm)
+        else:
+            entry = _refresh(use_llm, db=db, rows=rows, release=release)
+    payload = entry["payload"]
     return {
         "total_items": payload["items"],
         "total_groups": len(payload["groups"]),
@@ -217,7 +323,4 @@ def butcher_comparison(
 
 def warm_butcher_cache() -> None:
     """Recompute e atualiza o cache (usado por thread de warm-up da API)."""
-    from app.db.session import SessionLocal
-
-    with SessionLocal() as db:
-        butcher_comparison(db, limit=300, use_llm=True)
+    _refresh(use_llm=True)

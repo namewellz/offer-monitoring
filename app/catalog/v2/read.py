@@ -22,6 +22,7 @@ from app.stores import apply_store_filter, store_label
 from app.db.models_v2 import (
     CatalogSource,
     CollectionTarget,
+    LlmClassification,
     PricePeriod,
     SourceProduct,
     SourceProductVersion,
@@ -193,13 +194,42 @@ def current_listings(
     retailer: str | None = None,
     limit: int | None = None,
     offset: int | None = None,
+    fresh_only: bool = False,
+    accepted_only: bool = False,
+    ordered: bool = True,
+    release: bool = False,
 ) -> list[tuple[Any, ...]]:
-    query = _current_listings_query(product=product, retailer=retailer)
+    """Open-period rows for active listings.
+
+    Optional narrowing (all default off, so existing callers are unchanged):
+
+    - ``fresh_only``: only prices confirmed within ``PRICE_MAX_AGE`` (the same
+      cut ``is_price_fresh`` applies in Python; callers may keep that check, it
+      is only ever stricter because it runs later);
+    - ``accepted_only``: only products with at least one LLM ``accept`` verdict;
+    - ``ordered=False``: skip ``ORDER BY raw_name`` when the caller does not
+      depend on row order;
+    - ``release``: end the session transaction right after fetching so a long
+      Python pass over the rows does not leave the connection idle in
+      transaction. Only use it with a session the caller owns and has no
+      pending writes in.
+    """
+    query = _current_listings_query(
+        product=product,
+        retailer=retailer,
+        fresh_only=fresh_only,
+        accepted_only=accepted_only,
+    )
+    if ordered:
+        query = query.order_by(SourceProductVersion.raw_name)
     if limit is not None:
         query = query.limit(limit)
     if offset is not None:
         query = query.offset(offset)
-    return db.execute(query.order_by(SourceProductVersion.raw_name)).all()
+    rows = db.execute(query).all()
+    if release:
+        db.rollback()
+    return rows
 
 
 def count_current_listings(
@@ -218,6 +248,8 @@ def _current_listings_query(
     *,
     product: str | None = None,
     retailer: str | None = None,
+    fresh_only: bool = False,
+    accepted_only: bool = False,
 ):
     open_period = aliased(PricePeriod)
     previous = aliased(PricePeriod)
@@ -272,6 +304,16 @@ def _current_listings_query(
         query = query.where(SourceProductVersion.raw_name.ilike(f"%{product}%"))
     if retailer:
         query = query.where(Retailer.slug == retailer)
+    if fresh_only:
+        query = query.where(open_period.last_confirmed_at >= price_fresh_cutoff())
+    if accepted_only:
+        query = query.where(
+            StoreListing.source_product_id.in_(
+                select(LlmClassification.source_product_id).where(
+                    LlmClassification.decision == "accept"
+                )
+            )
+        )
     return query
 
 

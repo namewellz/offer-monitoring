@@ -1210,11 +1210,18 @@ def shopping_builder(list_id: int, db: Session = Depends(get_db)):
     obj = shopping_store.get_list(db, list_id)
     if obj is None:
         raise HTTPException(404, "Lista não encontrada")
+    items = shopping_store.items(db, obj.id)
+    # Nunca recalcula o catálogo dentro da requisição: lista vazia não precisa
+    # dele (a busca usa /api/shopping/catalog via fetch) e, com itens, usa o que
+    # houver em cache (cache frio => página sai sem preços e o JS os completa
+    # pelo mesmo endpoint da busca).
+    catalog = catalog_search_index(db, block=False) if items else None
     return render_builder(
         obj.name,
         obj.id,
-        catalog_search_index(db),
-        shopping_store.items(db, obj.id),
+        catalog or {},
+        items,
+        catalog_pending=bool(items) and catalog is None,
     )
 
 

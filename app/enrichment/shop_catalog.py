@@ -12,8 +12,11 @@ lines so a shopping list can include any classified product.
 from __future__ import annotations
 
 import json
+import logging
+import threading
 import time
 from collections import defaultdict
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import select
@@ -40,8 +43,20 @@ _FAMILY_BASE = {
     "embalagem": "embalagem",
 }
 
-_CACHE: dict[str, Any] = {"ts": 0.0, "lines": None, "index": None, "index_json": None, "filter": None}
+log = logging.getLogger(__name__)
+
+# Cache por chave de filtro de loja (um ``?rede=`` não despeja o padrão). Cada
+# entrada: {"ts", "lines", "index", "index_json"}.
+_CACHE: dict[str, dict[str, Any]] = {}
+_MAX_ENTRIES = 16
 _TTL = 300
+# Single-flight: só um recálculo por vez; os demais servem o dado antigo (ou
+# esperam, se ainda não existe nada para o filtro) em vez de recalcular junto.
+_LOCK = threading.Lock()
+_REFRESHING: set[str] = set()
+_STATE_LOCK = threading.Lock()
+
+Rows = Sequence[tuple[Any, ...]]
 
 
 def _identity_from(canonical: Any, raw: str, fallback: str) -> tuple[str, bool, bool]:
@@ -101,9 +116,12 @@ def _as_dict_sources(group: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return out
 
 
-def _butcher_lines(db: Any) -> list[dict[str, Any]]:
+def _butcher_lines(db: Any, rows: Rows | None = None) -> list[dict[str, Any]]:
     lines = []
-    for group in butcher_comparison(db, limit=4000, use_llm=True)["groups"]:
+    payload = butcher_comparison(
+        db, limit=4000, use_llm=True, rows=rows, release=rows is not None
+    )
+    for group in payload["groups"]:
         sources = _as_dict_sources(group)
         if not sources:
             continue
@@ -121,7 +139,7 @@ def _butcher_lines(db: Any) -> list[dict[str, Any]]:
     return lines
 
 
-def _generic_lines(db: Any) -> list[dict[str, Any]]:
+def _generic_lines(db: Any, rows: Rows | None = None) -> list[dict[str, Any]]:
     """Per-unit price lines for every department except Açougue (one pass)."""
     accepts = db.execute(
         select(
@@ -147,11 +165,13 @@ def _generic_lines(db: Any) -> list[dict[str, Any]]:
     for pid, dept, label in accepts:
         pid_info[int(pid)] = (dept, overrides.get((dept, label), label))
     pids = set(pid_info)
+    if rows is not None:
+        db.rollback()  # sessão própria do refresh: não segura transação no laço
     if not pids:
         return []
 
     listings: dict[int, list[tuple[Any, ...]]] = defaultdict(list)
-    for row in current_listings(db):
+    for row in (rows if rows is not None else current_listings(db)):
         pid = row[_IDX["pid"]]
         if pid not in pids:
             continue
@@ -310,7 +330,7 @@ def _group_produce(
     return lines
 
 
-def _produce_lines(db: Any) -> list[dict[str, Any]]:
+def _produce_lines(db: Any, rows: Rows | None = None) -> list[dict[str, Any]]:
     """Pickable Hortifrúti lines: produce identity products per sale unit."""
     accepts = db.execute(
         select(
@@ -335,11 +355,13 @@ def _produce_lines(db: Any) -> list[dict[str, Any]]:
     for pid, label in accepts:
         pid_canon[int(pid)] = overrides.get(("Hortifruti", label), label)
     pids = set(pid_canon)
+    if rows is not None:
+        db.rollback()  # sessão própria do refresh: não segura transação no laço
     if not pids:
         return []
 
     entries: list[tuple[int, float, str, str, str]] = []
-    for row in current_listings(db):
+    for row in (rows if rows is not None else current_listings(db)):
         pid = row[_IDX["pid"]]
         if pid not in pids:
             continue
@@ -419,49 +441,128 @@ def _build_search_index(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]
     return index
 
 
-def _refresh_cache(db: Any) -> None:
-    lines = _butcher_lines(db) + _produce_lines(db) + _generic_lines(db)
-    _CACHE["lines"] = lines
-    _CACHE["index"] = _build_search_index(lines)
-    _CACHE["index_json"] = None
-    _CACHE["ts"] = time.time()
-    _CACHE["filter"] = CURRENT_FILTER.get().key
+def _shared_rows(db: Any) -> list[tuple[Any, ...]]:
+    """One catalog read shared by the butcher, produce and generic passes.
+
+    Every pass already drops rows whose price is stale (``is_price_fresh``) and
+    rows of products without an LLM ``accept`` (butcher: any department; produce:
+    Hortifruti; generic: the rest), so those filters move to SQL. Row order is
+    kept (``ORDER BY raw_name``) because first-seen order drives tie-breaks and
+    the order of the lines. The transaction is released right after the fetch.
+    """
+    return current_listings(db, fresh_only=True, accepted_only=True, release=True)
 
 
-def _fresh() -> bool:
-    return (
-        _CACHE["lines"] is not None
-        and time.time() - _CACHE["ts"] <= _TTL
-        and _CACHE["filter"] == CURRENT_FILTER.get().key
-    )
+def _compute_lines(db: Any) -> list[dict[str, Any]]:
+    rows = _shared_rows(db)
+    return _butcher_lines(db, rows) + _produce_lines(db, rows) + _generic_lines(db, rows)
 
 
-def catalog_rows(db: Any) -> list[dict[str, Any]]:
+def _is_fresh(entry: dict[str, Any] | None) -> bool:
+    return entry is not None and time.time() - entry["ts"] <= _TTL
+
+
+def _store(key: str, lines: list[dict[str, Any]]) -> dict[str, Any]:
+    entry = {
+        "ts": time.time(),
+        "lines": lines,
+        "index": _build_search_index(lines),
+        "index_json": None,
+    }
+    _CACHE[key] = entry
+    while len(_CACHE) > _MAX_ENTRIES:
+        oldest = min(_CACHE, key=lambda k: _CACHE[k]["ts"])
+        _CACHE.pop(oldest, None)
+    return entry
+
+
+def _refresh(force: bool = False) -> dict[str, Any]:
+    """Recompute the entry of the current store filter (single-flight).
+
+    Always uses a private session, so the request's session is never held open
+    by the catalog pass. If another thread finished the same refresh while we
+    waited for the lock, that result is reused.
+    """
+    from app.db.session import SessionLocal
+
+    key = CURRENT_FILTER.get().key
+    with _LOCK:
+        entry = _CACHE.get(key)
+        if not force and _is_fresh(entry):
+            return entry
+        started = time.monotonic()
+        with SessionLocal() as db:
+            lines = _compute_lines(db)
+        entry = _store(key, lines)
+        log.info(
+            "shop catalog refreshed filter=%r lines=%d in %.1fs",
+            key,
+            len(lines),
+            time.monotonic() - started,
+        )
+        return entry
+
+
+def _refresh_in_background() -> None:
+    flt = CURRENT_FILTER.get()
+    with _STATE_LOCK:
+        if flt.key in _REFRESHING:
+            return
+        _REFRESHING.add(flt.key)
+
+    def run() -> None:
+        token = CURRENT_FILTER.set(flt)
+        try:
+            _refresh()
+        except Exception:  # noqa: BLE001 - nunca derruba a thread de fundo
+            log.exception("shop catalog background refresh failed")
+        finally:
+            CURRENT_FILTER.reset(token)
+            with _STATE_LOCK:
+                _REFRESHING.discard(flt.key)
+
+    threading.Thread(target=run, daemon=True, name="shop-catalog-refresh").start()
+
+
+def _entry(block: bool = True) -> dict[str, Any] | None:
+    """Stale-while-revalidate access to the current filter's entry.
+
+    fresh -> returned; stale -> returned now and refreshed once in background;
+    missing -> computed now when ``block`` (one at a time), otherwise a
+    background refresh is started and ``None`` returned.
+    """
+    entry = _CACHE.get(CURRENT_FILTER.get().key)
+    if _is_fresh(entry):
+        return entry
+    if entry is not None or not block:
+        _refresh_in_background()
+        return entry
+    return _refresh()
+
+
+def catalog_rows(db: Any = None) -> list[dict[str, Any]]:
     """All pickable lines for the shopping builder (cached)."""
-    if not _fresh():
-        _refresh_cache(db)
-    return _CACHE["lines"]
+    return _entry(block=True)["lines"]
 
 
-def catalog_search_index(db: Any) -> dict[str, dict[str, Any]]:
-    """Client-ready search index (cached, computed once per TTL)."""
-    if not _fresh():
-        _refresh_cache(db)
-    return _CACHE["index"]
+def catalog_search_index(db: Any = None, *, block: bool = True) -> dict[str, dict[str, Any]] | None:
+    """Client-ready search index (cached, computed once per TTL).
+
+    ``block=False`` never waits for a cold cache: it returns ``None`` (and
+    starts a background refresh) when nothing is cached yet for the filter.
+    """
+    entry = _entry(block=block)
+    return entry["index"] if entry is not None else None
 
 
-def catalog_search_index_json(db: Any) -> str:
+def catalog_search_index_json(db: Any = None) -> str:
     """Client-ready search index serialized to JSON (string cached per TTL)."""
-    if not _fresh():
-        _refresh_cache(db)
-    if _CACHE["index_json"] is None:
-        _CACHE["index_json"] = json.dumps(_CACHE["index"], ensure_ascii=False)
-    return _CACHE["index_json"]
+    entry = _entry(block=True)
+    if entry["index_json"] is None:
+        entry["index_json"] = json.dumps(entry["index"], ensure_ascii=False)
+    return entry["index_json"]
 
 
 def warm_shop_catalog() -> None:
-    from app.db.session import SessionLocal
-
-    with SessionLocal() as db:
-        if not _fresh():
-            _refresh_cache(db)
+    """Recalcula se vencido (threads de warm-up; filtro padrão)."""
+    _refresh()

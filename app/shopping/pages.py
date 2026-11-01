@@ -196,6 +196,7 @@ def render_builder(
     list_id: int,
     catalog: dict[str, dict[str, Any]],
     list_items: list[dict[str, Any]],
+    catalog_pending: bool = False,
 ) -> str:
     # catalog = índice client-ready keyed "department|category|form", pré-computado
     # e cacheado em shop_catalog. A página embute APENAS as linhas da lista (mais
@@ -257,7 +258,9 @@ def render_builder(
         "<span class='hint' id='hint'></span></div>"
         "<div class='pick' id='pick' style='display:none'></div></div>"
     )
-    return _page(f"Lista: {name}", inner) + _script(payload_rows, list_items, list_id)
+    return _page(f"Lista: {name}", inner) + _script(
+        payload_rows, list_items, list_id, catalog_pending=catalog_pending
+    )
 
 
 def _item_row(it: dict[str, Any], row_map: dict[str, Any]) -> str:
@@ -295,7 +298,8 @@ def _item_row(it: dict[str, Any], row_map: dict[str, Any]) -> str:
     qty_s = f"{qty:g}"
     unit_html = _unit_html(dept, it["category"], unit, label, row_map)
     return (
-        "<tr class='sli' data-id='" + str(it["id"]) + "'>"
+        "<tr class='sli' data-id='" + str(it["id"]) + "'"
+        f" data-retailer=\"{escape(it['retailer'] or '')}\">"
         f"<td><input type='hidden' class='deptv' value=\"{escape(dept)}\">"
         f"<input type='hidden' class='cat' value=\"{escape(it['category'])}\">"
         f"<input type='hidden' class='formv' value=\"{escape(it['form'])}\">"
@@ -312,11 +316,17 @@ def _item_row(it: dict[str, Any], row_map: dict[str, Any]) -> str:
     )
 
 
-def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> str:
+def _script(
+    rows_json: str,
+    list_items: list[dict[str, Any]],
+    list_id: int,
+    catalog_pending: bool = False,
+) -> str:
     template = """<script>
 (function(){
   const LIST_ID = @@LIST_ID@@;
   const ROWS = @@ROWS@@;
+  const CATALOG_PENDING = @@PENDING@@;
   const LABEL = {'arena-atacado':'Arena','goodbom':'GoodBom','atacadao':'Atacadão','savegnago':'Savegnago','davitta':'Davitta','assai':'Assaí','tenda':'Tenda','sao-vicente':'São Vicente','max-atacadista':'Max','dalben':'Dalben','spani':'Spani','pague-menos':'Pague Menos'};
   const fmt = v => 'R$ ' + Number(v).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
   const key = (d,c,f) => d + '|' + c + '|' + f;
@@ -686,6 +696,31 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
     } catch (e) {}
   }
   for (const tr of [...document.querySelectorAll('#items tr.sli')]) bindRow(tr);
+  // Cache do catálogo ainda frio no servidor: a página saiu sem preços; busca o
+  // catálogo pelo mesmo endpoint da busca e redesenha as linhas da lista.
+  function hydrateRows() {
+    for (const tr of [...document.querySelectorAll('#items tr.sli, #grouped tr.sli')]) {
+      const sel = tr.querySelector('select.src');
+      const note = tr.querySelector('input.note');
+      const it = {
+        id: tr.dataset.id,
+        department: tr.querySelector('.deptv').value,
+        category: tr.querySelector('.cat').value,
+        form: tr.querySelector('.formv').value,
+        retailer: (sel && sel.value) || tr.dataset.retailer || '',
+        qty: tr.querySelector('input.qty').value,
+      };
+      const nt = makeRow(it);
+      nt.dataset.retailer = tr.dataset.retailer || '';
+      nt.querySelector('input.note').value = note ? note.value : '';
+      tr.replaceWith(nt);
+      bindRow(nt);
+    }
+    if (marketView) renderGrouped();
+    compute();
+    if (hint && hint.textContent === 'Carregando produtos…') hint.textContent = '';
+  }
+  if (CATALOG_PENDING && document.querySelector('#items tr.sli')) ensureCatalog(hydrateRows);
   if (btnFlat && btnMarket && groupedEl) {
     btnFlat.addEventListener('click', () => setView('flat'));
     btnMarket.addEventListener('click', () => setView('market'));
@@ -694,4 +729,8 @@ def _script(rows_json: str, list_items: list[dict[str, Any]], list_id: int) -> s
   renderPick();
 })();
 </script>"""
-    return template.replace("@@LIST_ID@@", str(list_id)).replace("@@ROWS@@", rows_json)
+    return (
+        template.replace("@@LIST_ID@@", str(list_id))
+        .replace("@@PENDING@@", "true" if catalog_pending else "false")
+        .replace("@@ROWS@@", rows_json)
+    )
