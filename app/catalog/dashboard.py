@@ -272,7 +272,7 @@ def render_catalog_dashboard(
 <link rel="stylesheet" href="/static/catalog.css?v=20261016-1"></head>
 <body><header class="topbar"><div class="shell brandbar">
 <a class="brand" href="/"><span class="brand-mark">OM</span><span>Offer Monitor</span></a>
-<nav class="topnav"><a href="/">Início</a><a href="/shopping-lists">Lista de compras</a><a href="/catalog/updates">Atualizações</a></nav>
+<nav class="topnav"><a href="/">Início</a><a href="/shopping-lists">Lista de compras</a><a href="/canonical">Lista canônica</a><a href="/catalog/updates">Atualizações</a></nav>
 <span class="live"><i></i> Monitoramento ativo</span></div></header>
 <main class="shell">
 <section class="hero"><div><span class="eyebrow">Inteligência de preços</span>

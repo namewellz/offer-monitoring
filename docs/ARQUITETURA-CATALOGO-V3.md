@@ -354,3 +354,89 @@ verdadeiro volta, o histórico registra **+19.800%**. Correção:
   reabre o período anterior e recompõe o read model (idempotente).
 
 A regra é **por rede, nunca global** — foi o que preservou o vinho de R$ 999,90.
+
+---
+
+## 11. Lista canônica (identidade determinística, sem LLM)
+
+### 11.1 O que é
+
+Uma terceira visão sobre o mesmo read model: em vez de "produto × loja", a tela
+mostra **"produto canônico"** — o mesmo item vendido por várias redes, comparado
+por **preço unitário** (R$ / kg, R$ / L, R$ / unidade). Nenhuma chamada de LLM:
+só o normalizador determinístico (`app/canonical/normalize.py`, `canon-3.0`).
+
+### 11.2 Fluxo (tudo na escrita)
+
+```
+coleta → normalized_product_versions  (match_key, size, pack, coverage_group)
+       → projeção em store_listings   (identity_key, canonical_name,
+                                       comparison_quantity/unit, unit_price_micros)
+       → agregado canônico            (canonical_products: 1 linha por identity_key)
+```
+
+| Etapa | Onde | Custo |
+|---|---|---|
+| Normalizar | `app.canonical.backfill` / `incremental` | ~4 min para 229k versões (1×, ou por rede) |
+| Projetar | `app.canonical.project.project_all` | ~1 min para 440k listings |
+| Agregar | `refresh_canonical_products` | ~6 s |
+
+A leitura da tela não faz `GROUP BY` nenhum: `SELECT ... FROM canonical_products`
+= **~20 ms** com cache quente (165.910 produtos canônicos).
+
+### 11.3 Preço unitário
+
+`unit_price_micros = round(effective_price_cents * 10000 / quantidade_base)`
+— micro-reais por **grama**, **mililitro** ou **unidade**. A conversão para
+kg/L acontece só na formatação (`_unit_label`), nunca no banco.
+
+Quantidade base = `size_value` convertido (`kg→g`, `l/lt→ml`, `dz→un`,
+`peca/capsula/folha/sache/rolo/tablete/saco→un`) × `pack_qty`.
+`dim:` (dimensão de embalagem) não gera preço unitário.
+
+### 11.4 Grupos de cobertura
+
+| Grupo | Significado | Comparável |
+|---|---|---|
+| `A1` | chave idêntica em 2+ redes | sim |
+| `A2` | identidade completa (marca + tamanho) em 1 rede | sim |
+| `B1`–`B4` | marca/tamanho inferidos ou ausentes | não |
+| `C` | sem identidade | não |
+| `R` | fila de revisão | não |
+
+Produtividade atual (base local, out/2026): **A1+A2 = 364.589 listings**
+(83% do catálogo ativo), **320.793 listings com preço unitário** (91,9% dos
+preços válidos), **149.299 produtos canônicos comparáveis**.
+
+### 11.5 Telas e API
+
+| Rota | O que mostra |
+|---|---|
+| `GET /canonical` | lista (busca por nome, departamento, "só comparáveis") |
+| `GET /canonical/{identity_key}` | ofertas ordenadas por preço unitário |
+| `GET /canonical/api/products` | JSON da lista |
+| `GET /canonical/api/product/{key}` | JSON das ofertas |
+| `GET /canonical/api/stats` | cobertura por grupo |
+
+### 11.6 Decisões
+
+1. **Agregado materializado, não view.** `GROUP BY identity_key` sobre 440k
+   listings custa 1,7 s; a tabela agregada custa 20 ms.
+2. **Índices derrubados durante a reconstrução** — manter btree em 165k
+   inserts custa mais que recriar depois (11,3 s → 6,6 s).
+3. **Sem GIN trgm no nome**: `ILIKE` em 165k linhas é seq scan de ~20 ms;
+   o GIN encarecia toda reconstrução.
+4. **Departamento e nome por `mode()`**, não `min()` — o mesmo produto pode ter
+   classificações divergentes entre redes; vale a mais frequente.
+5. **Deduplicação na tela**: o mesmo item pode existir em dois catálogos da
+   mesma rede (ids externos diferentes). Fica a observação mais recente por
+   `(rede, loja, nome)`.
+6. **Sem LLM nesta fase.** `ai_assessments` / resolução por modelo continuam
+   desligados; o grupo `R` existe para quando ligarem.
+
+### 11.7 Ligar / reconstruir
+
+```bash
+python -m app.cli canonical-backfill     # normaliza o corpus inteiro + projeta + agrega
+CANONICAL_ENABLED=true                  # habilita o incremental por coleta
+```

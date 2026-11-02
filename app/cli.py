@@ -81,6 +81,7 @@ def main() -> None:
     commands.add_parser("backfill-v2")
     commands.add_parser("backfill-catalog-read-model")
     commands.add_parser("purge-catalog-sentinels")
+    commands.add_parser("canonical-backfill")
     extract = commands.add_parser("extract")
     extract.add_argument("--flyer", required=True)
     extract.add_argument("--strategy")
@@ -185,11 +186,24 @@ def main() -> None:
             print(f"  {key}: {value}")
         return
     if args.command == "purge-catalog-sentinels":
+        from app.canonical.project import project_all
         from app.catalog.v2.rebuild import purge_sentinel_periods
 
         with SessionLocal() as db:
             result = purge_sentinel_periods(db)
+            result["projected"] = project_all(db)
         print("Sentinel prices purged:")
+        for key, value in result.items():
+            print(f"  {key}: {value}")
+        return
+    if args.command == "canonical-backfill":
+        from app.canonical.backfill import run_backfill
+        from app.canonical.project import project_all
+
+        with SessionLocal() as db:
+            result = run_backfill(db)
+            result["projected"] = project_all(db)
+        print("Canonical backfill:")
         for key, value in result.items():
             print(f"  {key}: {value}")
         return

@@ -206,6 +206,13 @@ class StoreListing(_BigIntId, Base):
     is_offer: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     offer_kind: Mapped[str | None] = mapped_column(String(30), nullable=True)
     last_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # ==== projeção canônica (normalizador determinístico, sem LLM) ====
+    identity_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    canonical_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    coverage_group: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    comparison_quantity: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
+    comparison_unit: Mapped[str | None] = mapped_column(String(6), nullable=True)
+    unit_price_micros: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -380,6 +387,28 @@ class NormalizedProductVersion(_BigIntId, Base):
             name="uq_normalized_versions_source_pipeline",
         ),
         UniqueConstraint("id", "source_product_version_id"),
+    )
+
+
+class CanonicalProduct(Base):
+    """Agregado da lista canônica: uma linha por ``identity_key``.
+
+    Reconstruído por ``app.canonical.project.refresh_canonical_products`` ao fim
+    de cada projeção; a tela só filtra e ordena.
+    """
+
+    __tablename__ = "canonical_products"
+    identity_key: Mapped[str] = mapped_column(String(512), primary_key=True)
+    canonical_name: Mapped[str] = mapped_column(Text)
+    department: Mapped[str | None] = mapped_column(Text)
+    coverage_group: Mapped[str | None] = mapped_column(String(2))
+    comparison_unit: Mapped[str | None] = mapped_column(String(6))
+    offers: Mapped[int] = mapped_column(Integer)
+    retailers: Mapped[int] = mapped_column(Integer)
+    min_unit_price_micros: Mapped[int | None] = mapped_column(BigInteger)
+    max_unit_price_micros: Mapped[int | None] = mapped_column(BigInteger)
+    refreshed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )
 
 

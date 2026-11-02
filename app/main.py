@@ -23,6 +23,16 @@ from app.catalog.dashboard import (
 from app.home import render_home
 from app.catalog.taxonomy import CANONICAL_DEPARTMENTS
 from app.catalog.update_dashboard import render_update_dashboard
+from app.canonical.pages import render_canonical_detail, render_canonical_list
+from app.catalog.v2.canonical_read import (
+    canonical_offers as v2_canonical_offers,
+)
+from app.catalog.v2.canonical_read import (
+    canonical_products as v2_canonical_products,
+)
+from app.catalog.v2.canonical_read import (
+    canonical_stats as v2_canonical_stats,
+)
 from app.core.timezone import to_local
 from app.catalog.v2.read import (
     department_counts as v2_department_counts,
@@ -1491,6 +1501,76 @@ def catalog_dashboard(
         page_size=page_size,
         latest_runs=latest_runs,
     )
+
+
+@app.get("/canonical", response_class=HTMLResponse, include_in_schema=False)
+def canonical_list(
+    product: str | None = None,
+    department: str | None = None,
+    covered: int = 0,
+    page: int = 1,
+    size: int = 50,
+    db: Session = Depends(get_db),
+):
+    page_size = min(max(size, 10), 200)
+    total, results = v2_canonical_products(
+        db,
+        product=product,
+        department=department,
+        only_covered=covered == 1,
+        limit=page_size,
+        offset=(max(page, 1) - 1) * page_size,
+    )
+    stats = _views_get("canonical_stats", lambda: v2_canonical_stats(db), db)
+    total_pages = max(1, ((total or 0) + page_size - 1) // page_size)
+    return render_canonical_list(
+        stats=stats,
+        results=results,
+        total_results=total or 0,
+        page=min(max(page, 1), total_pages),
+        page_size=page_size,
+        product=product,
+        department=department,
+        only_covered=covered == 1,
+    )
+
+
+@app.get("/canonical/{identity_key}", response_class=HTMLResponse, include_in_schema=False)
+def canonical_detail(identity_key: str, db: Session = Depends(get_db)):
+    data = v2_canonical_offers(db, identity_key)
+    if not data["offers"]:
+        raise HTTPException(404, "canonical product not found")
+    return render_canonical_detail(data)
+
+
+@app.get("/canonical/api/products")
+def canonical_api_products(
+    product: str | None = None,
+    department: str | None = None,
+    covered: int = 0,
+    limit: int = 100,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    total, results = v2_canonical_products(
+        db,
+        product=product,
+        department=department,
+        only_covered=covered == 1,
+        limit=min(max(limit, 1), 500),
+        offset=max(offset, 0),
+    )
+    return {"total": total, "results": results}
+
+
+@app.get("/canonical/api/product/{identity_key}")
+def canonical_api_product(identity_key: str, db: Session = Depends(get_db)):
+    return v2_canonical_offers(db, identity_key)
+
+
+@app.get("/canonical/api/stats")
+def canonical_stats_api(db: Session = Depends(get_db)):
+    return v2_canonical_stats(db)
 
 
 @app.get("/catalog/legacy", response_class=HTMLResponse, include_in_schema=False)

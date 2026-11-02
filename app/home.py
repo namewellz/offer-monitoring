@@ -74,12 +74,18 @@ SECTIONS: list[dict[str, Any]] = [
         "subtitle": "Compare o mesmo produto entre as lojas (identidade canônica)",
         "cards": [
             {
-                "icon": "🍎",
+                "icon": "�",
+                "title": "Lista canônica",
+                "text": "O mesmo produto entre redes, comparado por R$/kg, R$/L ou R$/un.",
+                "href": "/canonical",
+                "primary": True,
+            },
+            {
+                "icon": "�🍎",
                 "title": "Hortifrúti",
                 "text": "Frutas, verduras e legumes por identidade (ex.: Maçã Fuji).",
                 "href": "/catalog/produce-prices",
-            },
-            {
+            },            {
                 "icon": "🥩",
                 "title": "Açougue (cortes)",
                 "text": "Comparativo de cortes por quilo entre as lojas.",
@@ -211,7 +217,7 @@ def render_home(db: Any) -> str:
 <header class="topbar"><div class="inner">
 <a class="brand" href="/"><span class="mark">OM</span><span>Offer Monitor<small>Preços & Compras</small></span></a>
 <nav class="nav">
-<a href="/catalog">Catálogo</a><a href="/catalog/brands">Marcas</a><a href="/shopping-lists">Lista de compras</a>
+<a href="/catalog">Catálogo</a><a href="/canonical">Lista canônica</a><a href="/catalog/brands">Marcas</a><a href="/shopping-lists">Lista de compras</a>
 <a href="/catalog/produce-prices">Hortifrúti</a><a href="/catalog/cuts">Açougue</a>
 <a href="/catalog/updates">Atualizações</a></nav></div></header>
 <section class="hero"><div class="inner">

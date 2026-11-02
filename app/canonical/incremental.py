@@ -24,6 +24,7 @@ from app.canonical.normalize import (
     Normalized,
     normalize_corpus,
 )
+from app.canonical.project import project_products
 from app.db.models_v2 import NormalizedProductVersion
 
 PENDING_SQL = text(
@@ -78,6 +79,7 @@ def normalize_retailer(
     items = normalize_corpus(load_current_rows(db))
     todo = rows_to_insert(items, pending)
     inserted = 0
+    projected = 0
     if not dry_run:
         for chunk in batches(todo, batch_size):
             stmt = insert(NormalizedProductVersion).values([to_record(item) for item in chunk])
@@ -87,11 +89,21 @@ def normalize_retailer(
             inserted += len(db.execute(stmt).all())
             db.commit()
             log(f"normalize {retailer_slug}: {inserted} inserted / {len(todo)}")
+        # Projeta a identidade no read model para a tela não precisar de join.
+        product_ids = db.execute(
+            text(
+                "SELECT source_product_id FROM source_product_versions "
+                "WHERE id = ANY(:ids)"
+            ),
+            {"ids": sorted(item.id for item in todo)},
+        ).scalars().all()
+        projected = project_products(db, [int(value) for value in product_ids])
     return {
         "retailer": retailer_slug,
         "pending": len(pending),
         "selected": len(todo),
         "inserted": inserted,
+        "projected": projected,
         "dry_run": dry_run,
         "normalizer_version": NORMALIZER_VERSION,
     }

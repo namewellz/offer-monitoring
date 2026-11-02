@@ -405,6 +405,19 @@ def _offer_kind(
     return None
 
 
+def _unit_price_micros(price_cents: int | None, quantity: Any) -> int | None:
+    """Preço por unidade base em micro-reais (R$ 4,09 / 450 ml -> 9089/ml)."""
+    if price_cents is None or quantity is None:
+        return None
+    try:
+        amount = float(quantity)
+    except (TypeError, ValueError):
+        return None
+    if amount <= 0:
+        return None
+    return round(price_cents * 10000.0 / amount)
+
+
 def _sync_listing_snapshot(
     listing: StoreListing,
     period: PricePeriod,
@@ -430,6 +443,11 @@ def _sync_listing_snapshot(
         period.effective_price_cents,
         period.best_conditional_price_cents,
         terms,
+    )
+    # A quantidade de comparação vem do normalizador (projeção canônica); aqui só
+    # mantemos o preço unitário coerente com o preço que acabou de mudar.
+    listing.unit_price_micros = _unit_price_micros(
+        period.effective_price_cents, listing.comparison_quantity
     )
     if not changed:
         return
