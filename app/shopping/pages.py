@@ -535,19 +535,6 @@ def _script(
       "<td><button class='del rm' type='button'>×</button></td>";
     return tr;
   }
-  // Redesenha a linha de detalhe (loja, coleta, produto do varejista) da origem escolhida.
-  function refreshDetail(tr) {
-    const info = ROWS[key(tr.querySelector('input.deptv').value, tr.querySelector('input.cat').value, tr.querySelector('input.formv').value)];
-    const sources = info ? info.sources : [];
-    const chosen = tr.querySelector('select.src').value;
-    const base = sources.find(s => s.slug === chosen) || sources[0];
-    const parts = [];
-    if (base && base.store) parts.push(esc(base.store));
-    if (base && base.confirmed) parts.push('coletado ' + esc(fmtWhen(base.confirmed)) + ' (' + esc(fmtAge(base.confirmed)) + ')');
-    if (base && base.sample) parts.push(esc(base.sample));
-    const span = tr.querySelector('.detail');
-    if (span) span.innerHTML = parts.join(' · ');
-  }
   function bindRow(tr) {
     const id = tr.dataset.id;
     const ut = tr.querySelector('select.utype');
@@ -573,7 +560,6 @@ def _script(
     });
     tr.querySelector('select.src').addEventListener('change', function(){
       persist(id, {retailer: this.value});
-      refreshDetail(tr);
       if (marketView) renderGrouped();
       compute();
     });
@@ -688,8 +674,11 @@ def _script(
       totalmin += (info.sources[0] ? info.sources[0].price : 0) * qty;
       const det = tr.querySelector('.detail');
       if (det) {
+        // Único lugar que monta o detalhe da origem: loja, quando o preço foi
+        // confirmado e o nome que o varejista usa para o produto.
         const parts = [];
         if (src && src.store) parts.push(src.store);
+        if (src && src.confirmed) parts.push('coletado ' + fmtWhen(src.confirmed) + ' (' + fmtAge(src.confirmed) + ')');
         if (src && src.sample) parts.push(src.sample);
         det.textContent = parts.join(' · ');
       }
