@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import unicodedata
 from collections.abc import Sequence
 from typing import Any
 
@@ -48,6 +49,12 @@ _STATE_LOCK = threading.Lock()
 # Preços trocam a cada coleta agendada; 5min evita recálculo de ~13s a cada
 # requisição isolada sem sacrificar frescor (o warm-up mantém quente).
 _TTL = 300
+
+
+def _sem_acento(value: str) -> str:
+    """Minúsculo e sem acento, para comparar rótulos ('Suína' -> 'suina')."""
+    decomposed = unicodedata.normalize("NFD", value or "")
+    return "".join(c for c in decomposed if unicodedata.category(c) != "Mn").casefold()
 
 
 def _llm_index(db: Session) -> dict[int, dict[str, Any]]:
@@ -186,8 +193,9 @@ def _compute(
         # Costela bovina e suína não são o mesmo produto: sem separar, a linha
         # "Costela" sugere a suína (mais barata) para quem pediu a bovina. Só a
         # suína ganha sufixo, então "Costela" continua sendo a bovina — inclusive
-        # nos itens de lista já criados.
-        if parsed.species == "suino" and "suin" not in category.casefold():
+        # nos itens de lista já criados. A comparação ignora acento porque a
+        # categoria pode já vir como "Costela Suína".
+        if parsed.species == "suino" and "suin" not in _sem_acento(category):
             category = f"{category} Suína"
         key = (category, form)
         row = rows.setdefault(            key,
