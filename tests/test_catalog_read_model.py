@@ -141,6 +141,7 @@ def test_listing_query_compiles_with_filters():
     )
     assert "store_listings.department = " in sql
     assert "store_listings.is_offer IS true" not in sql
+    assert "store_listings.active IS true" not in sql
     assert "store_listings.change_percent < %(change_percent" in sql
     assert "abs(store_listings.change_percent) >=" in sql
     assert "ORDER BY abs(store_listings.change_percent) DESC NULLS LAST" in sql
@@ -157,7 +158,9 @@ def test_listing_query_offers_orders_by_discount():
             view="offers",
         ).compile(dialect=postgresql.dialect())
     )
-    assert "store_listings.is_offer IS true" in sql
+    assert "store_listings.is_offer" in sql
+    assert "store_listings.is_offer IS true" not in sql
+    assert "store_listings.active IS true" not in sql
     assert "store_listings.regular_price_cents - store_listings.effective_price_cents" in sql
 
 

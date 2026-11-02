@@ -489,7 +489,10 @@ def _listing_conditions(
     view: str,
 ) -> list[Any]:
     conditions: list[Any] = [
-        StoreListing.active.is_(True),
+        # Booleanos crus, não ``.is_(True)``: o Postgres não reconhece
+        # ``active IS TRUE`` como implicação de ``active`` ao casar índices
+        # parciais, e o plano cai para seq scan (1500 ms em vez de 9 ms).
+        StoreListing.active,
         # Paridade com o antigo INNER JOIN no período aberto: listing sem preço
         # conhecido não aparece na tela (e não tem last_confirmed_at).
         StoreListing.effective_price_cents.is_not(None),
@@ -501,7 +504,7 @@ def _listing_conditions(
     if department:
         conditions.append(StoreListing.department == department)
     if view == "offers":
-        conditions.append(StoreListing.is_offer.is_(True))
+        conditions.append(StoreListing.is_offer)
     else:
         if view == "changes":
             conditions.append(StoreListing.change_percent.is_not(None))
@@ -672,9 +675,7 @@ def price_page(
 
 def listing_department_counts(db: Session) -> dict[str, int]:
     """Contagem por departamento em um GROUP BY indexado."""
-    query = select(StoreListing.department, func.count()).where(
-        StoreListing.active.is_(True)
-    )
+    query = select(StoreListing.department, func.count()).where(StoreListing.active)
     query = apply_listing_store_filter(query, StoreListing)
     rows = db.execute(query.group_by(StoreListing.department)).all()
     release_read_transaction(db)
