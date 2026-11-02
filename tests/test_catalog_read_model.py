@@ -162,6 +162,8 @@ def test_listing_query_offers_orders_by_discount():
     assert "store_listings.is_offer IS true" not in sql
     assert "store_listings.active IS true" not in sql
     assert "store_listings.regular_price_cents - store_listings.effective_price_cents" in sql
+    # O índice ix_sl_offer_discount é DESC NULLS LAST: a ordem tem que casar.
+    assert "DESC NULLS LAST" in sql
 
 
 def test_listing_result_matches_dashboard_contract():
