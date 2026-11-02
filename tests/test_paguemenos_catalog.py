@@ -1,73 +1,142 @@
-from bs4 import BeautifulSoup
+"""Tests for the Pague Menos collector (VTEX catalog API).
 
-from app.catalog.paguemenos import parse_product
-from app.catalog.taxonomy import canonical_department
-
-FIXED_CARD = """
-<div class="item-product" data-sku="67074">
-  <a href="/odorizador-teste-unidade/p" class="item-image">
-    <img data-src="//io.convertiez.com.br/m/superpaguemenos/shop/products/images/51138/small/x.jpg" alt="x">
-  </a>
-  <div class="desc">
-    <span class="font-size-11 text-primary font-weight-bold">Luxcar</span>
-    <h2 class="title"><a href="/odorizador-teste-unidade/p">Odorizador Teste Unidade</a></h2>
-    <div class="box-prices"><div class="prices">
-      <p class="unit-price"><span>R$ 15,99</span></p>
-      <p class="sale-price"><strong>R$ 11,99</strong></p>
-    </div></div>
-  </div>
-  <form method="POST" action="/odorizador-teste-unidade/p" class="product-form"
-        data-json='{"item_id": 67074, "item_name": "Odorizador Teste Unidade", "item_brand": "Luxcar",
-                    "item_category1": "Limpeza", "item_category2": "Produtos Automotivos",
-                    "item_category3": "Aromatizador Para Carro", "price": 15.99, "discount": 4.0}'>
-    <input type="hidden" value="51138" name="product">
-    <input type="hidden" value="11.99" name="price">
-  </form>
-</div>
+The storefront became a VTEX FastStore SPA in Oct/2026 and the collector now
+reads ``/api/catalog_system/pub/products/search`` instead of scraping HTML.
+These tests pin the parts that broke silently before: the 206 status, the
+``resources`` header used for pagination and the department exclusions.
 """
+from __future__ import annotations
+
+import asyncio
+import json
+
+import httpx
+
+from app.catalog.paguemenos import (
+    EXCLUDED_DEPARTMENTS,
+    PagueMenosCatalogClient,
+    parse_products,
+)
+
+VTEX_PRODUCT = {
+    "productId": "123",
+    "productName": "Odorizador Teste Unidade",
+    "brand": "Luxcar",
+    "linkText": "odorizador-teste-unidade",
+    "productReference": "REF-1",
+    "categories": ["/Limpeza/Produtos Automotivos/Aromatizador/", "/Limpeza/"],
+    "items": [
+        {
+            "itemId": "67074",
+            "nameComplete": "Odorizador Teste Unidade 250ml",
+            "ean": "7891234567890",
+            "measurementUnit": "un",
+            "images": [{"imageUrl": "https://io.convertiez.com.br/m/superpaguemenos/x.jpg"}],
+            "sellers": [
+                {
+                    "sellerDefault": True,
+                    "commertialOffer": {
+                        "Price": 11.99,
+                        "ListPrice": 15.99,
+                        "IsAvailable": True,
+                        "AvailableQuantity": 12,
+                    },
+                }
+            ],
+        }
+    ],
+}
 
 
-def _card(html: str):
-    return BeautifulSoup(html, "html.parser").select_one("div.item-product")
+def _clone(**offer_overrides) -> dict:
+    payload = json.loads(json.dumps(VTEX_PRODUCT))
+    payload["items"][0]["sellers"][0]["commertialOffer"].update(offer_overrides)
+    return payload
 
 
-def test_parse_paguem_fixed_price_product() -> None:
-    product = parse_product(_card(FIXED_CARD), None)
+def test_parse_vtex_product() -> None:
+    (product,) = parse_products(VTEX_PRODUCT)
 
-    assert product is not None
     assert product.id == "67074"
-    assert product.name == "Odorizador Teste Unidade"
+    assert product.name == "Odorizador Teste Unidade 250ml"
     assert product.brand == "Luxcar"
-    assert product.categories == ["Limpeza", "Produtos Automotivos", "Aromatizador Para Carro"]
+    assert product.categories == ["Limpeza/Produtos Automotivos/Aromatizador", "Limpeza"]
     assert product.regular_price == 15.99
     assert product.sales_price == 11.99
-    assert product.discount == 4.0
-    assert product.available is True
-    assert product.image_url.startswith("https://io.convertiez.com.br/m/superpaguemenos/")
-    assert product.product_url.endswith("/odorizador-teste-unidade/p")
-    assert product.internal_code == "67074"
-    assert canonical_department(product.categories, product.name) == "Limpeza"
-
-
-def test_parse_paguem_skips_out_of_stock_card() -> None:
-    # Out-of-stock cards have no buyable product-form (they only show an
-    # "Avise-me" control) - strip the form entirely.
-    start = FIXED_CARD.index("<form ")
-    end = FIXED_CARD.index("</form>") + len("</form>")
-    html = FIXED_CARD[:start] + "<button>Avise-me</button>" + FIXED_CARD[end:]
-    assert parse_product(_card(html), None) is None
-
-
-def test_parse_paguem_skips_variable_weight_card() -> None:
-    weight = FIXED_CARD.replace(
-        '<div class="desc">',
-        '<div class="desc"><div class="pricing-weight"><p>Preço por KG: R$ 4,00</p></div>',
-        1,
+    assert round(product.discount, 2) == 4.0
+    assert product.ean == "7891234567890"
+    assert product.measure == "un"
+    assert product.stock == 12.0
+    assert product.internal_code == "REF-1"
+    assert product.product_url == (
+        "https://www.superpaguemenos.com.br/odorizador-teste-unidade/p"
     )
-    assert parse_product(_card(weight), None) is None
 
 
-def test_parse_paguem_skips_per_gram_artifact() -> None:
-    per_gram = FIXED_CARD.replace('value="11.99" name="price"', 'value="0.00399" name="price"')
-    per_gram = per_gram.replace('"price": 15.99', '"price": 3.99')
-    assert parse_product(_card(per_gram), None) is None
+def test_parse_skips_unavailable_item() -> None:
+    assert parse_products(_clone(IsAvailable=False)) == []
+
+
+def test_parse_skips_item_without_price() -> None:
+    assert parse_products(_clone(Price=0, PriceWithTaxes=0)) == []
+
+
+def test_parse_uses_list_price_as_regular_when_missing() -> None:
+    (product,) = parse_products(_clone(ListPrice=0))
+    assert product.regular_price == 11.99
+
+
+def _tree() -> list[dict]:
+    return [
+        {"id": 1, "name": "Category", "url": "https://x/category", "children": []},
+        {"id": 22, "name": "Açougue", "url": "https://x/acougue", "children": [{"id": 39}]},
+        {"id": 35, "name": "Hortifruti", "url": "https://x/hortifruti", "children": [{"id": 50}]},
+        {"id": 27, "name": "Festivos", "url": "https://x/festivos", "children": [{"id": 46}]},
+        {"id": 32, "name": "Mercearia", "url": "https://x/mercearia", "children": [{"id": 33}]},
+        {"id": 36, "name": "Petshop", "url": "https://x/petshop", "children": [{"id": 37}]},
+    ]
+
+
+def test_departments_skip_weight_and_marketing_roots() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "category/tree" in request.url.path:
+            return httpx.Response(200, json=_tree())
+        return httpx.Response(404)
+
+    async def run():
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            return await PagueMenosCatalogClient(client=client).fetch_departments(client)
+
+    departments = asyncio.run(run())
+    assert [item["slug"] for item in departments] == ["mercearia", "petshop"]
+    assert {item["slug"] for item in departments}.isdisjoint(EXCLUDED_DEPARTMENTS)
+
+
+def test_department_pagination_accepts_206_and_reads_resources_header() -> None:
+    """VTEX answers 206 for ranged searches; the total lives in `resources`."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        start = int(request.url.params["_from"])
+        if start == 0:
+            return httpx.Response(
+                206,
+                json=[VTEX_PRODUCT],
+                headers={"resources": "0-0/2"},
+            )
+        second = json.loads(json.dumps(VTEX_PRODUCT))
+        second["items"][0]["itemId"] = "67075"
+        return httpx.Response(206, json=[second], headers={"resources": "1-1/2"})
+
+    async def run():
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            catalog = PagueMenosCatalogClient(client=client, page_size=1)
+            semaphore = asyncio.Semaphore(2)
+            return await catalog._department(
+                client, semaphore, {"id": "32", "name": "Mercearia", "slug": "mercearia"}
+            )
+
+    products, errors = asyncio.run(run())
+    assert [product.id for product in products] == ["67074", "67075"]
+    assert errors == []

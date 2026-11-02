@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import re
-import string
 import uuid
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -19,7 +18,30 @@ STORE_ID = "175"
 STORE_CODE = "173"
 APP_VERSION = "10.10.4"
 PAGE_SIZE = 200
-SEARCH_TERMS = string.ascii_lowercase + string.digits
+
+# The search endpoint requires at least 3 characters. The old a-z/0-9 sweep is
+# dead since Oct/2026: a shorter term answers
+# `404 {"errors":[{"message":"product not found."}]}`.
+# A vocabulary of grocery words replaces it (accents do not matter - the API
+# normalises "feijão" and "feijao" to the same 365 products).
+SEARCH_TERMS = (
+    "arroz", "feijao", "acucar", "cafe", "leite", "oleo", "farinha", "macarrao",
+    "molho", "extrato", "atum", "sardinha", "biscoito", "bolacha", "salgadinho",
+    "chocolate", "bombom", "iogurte", "queijo", "presunto", "mortadela", "salsicha",
+    "linguica", "frango", "carne", "picanha", "costela", "file", "peixe", "camarao",
+    "ovo", "manteiga", "margarina", "requeijao", "condensado", "detergente", "sabao",
+    "amaciante", "desinfetante", "alcool", "esponja", "higienico", "guardanapo",
+    "absorvente", "fralda", "shampoo", "condicionador", "sabonete", "dental",
+    "desodorante", "cotonete", "refrigerante", "guarana", "cerveja", "vinho", "suco",
+    "agua", "energetico", "cha", "whisky", "vodka", "pao", "bolo", "torrada",
+    "cereal", "aveia", "granola", "achocolatado", "pilha", "lampada", "vela", "copo",
+    "prato", "talher", "panela", "pano", "tempero", "azeite", "vinagre", "maionese",
+    "ketchup", "mostarda", "pizza", "lasanha", "hamburguer", "nuggets", "batata",
+    "sorvete", "acai", "banana", "maca", "laranja", "tomate", "cebola", "alho",
+    "cenoura", "alface", "racao", "farinaceo", "sazon", "temperos", "biscoitos",
+    "salada", "toalha", "papel", "fosforo", "isqueiro", "saco", "garrafa", "mel",
+    "gelatina", "pudim", "torta", "salame", "ervilha", "milho", "seleta",
+)
 SEARCH_CONCURRENCY = 8
 
 
@@ -247,6 +269,12 @@ class AssaiCatalogClient:
                     {"page": page, "size": PAGE_SIZE},
                     semaphore,
                 )
+            except httpx.HTTPStatusError as error:
+                # 404 "product not found." means the term has no matches, not a failure.
+                if error.response.status_code == 404 and "product not found" in error.response.text:
+                    return item_count
+                collection_errors.append(collection_issue(f"search={term} page={page}", error))
+                return item_count
             except Exception as error:
                 collection_errors.append(collection_issue(f"search={term} page={page}", error))
                 return item_count

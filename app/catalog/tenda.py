@@ -302,7 +302,25 @@ class TendaCatalogClient:
     ) -> Any:
         async with self._semaphore:
             for attempt in range(3):
-                response = await client.get(url, params=params)
+                try:
+                    response = await client.get(url, params=params)
+                except httpx.ConnectError as error:
+                    # Without the proxy the Oracle IP is blocked by Azion, so an
+                    # unreachable proxy is the usual cause: name it explicitly.
+                    proxy = (
+                        self.proxy_url
+                        if self.proxy_url is not None
+                        else get_settings().tenda_proxy_url
+                    )
+                    target = f"proxy {str(proxy).rsplit('@', 1)[-1]}" if proxy else "sem proxy"
+                    raise RuntimeError(
+                        f"Tenda indisponivel ({target} inacessivel): {error}"
+                    ) from error
+                if response.status_code == 403:
+                    raise RuntimeError(
+                        "Tenda bloqueou o IP de saida (WAF Azion 403): "
+                        "confira se o proxy de TENDA_PROXY_URL esta no ar"
+                    )
                 if response.status_code != 429 and response.status_code < 500:
                     response.raise_for_status()
                     return response.json()

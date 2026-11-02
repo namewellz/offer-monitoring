@@ -107,24 +107,39 @@ class SavegnagoCatalogClient:
         total = int(match.group(1)) if match else len(first.json())
         fetch_total = min(total, 2501)
 
-        async def page(start: int) -> list[dict[str, Any]]:
-            async with semaphore:
-                response = await self._request(
-                    client,
-                    {
-                        "fq": filters,
-                        "_from": start,
-                        "_to": min(start + PAGE_SIZE - 1, fetch_total - 1),
-                    },
+        async def fetch(start: int, stop: int, depth: int = 0) -> list[dict[str, Any]]:
+            try:
+                async with semaphore:
+                    response = await self._request(
+                        client, {"fq": filters, "_from": start, "_to": stop}
+                    )
+                return response.json()
+            except (httpx.HTTPError, httpx.TimeoutException):
+                # VTEX answers 500 on specific deep offsets; a 50-item range often
+                # works when split, so retry in halves before giving up.
+                span = stop - start + 1
+                if span < 2 or depth >= 4:
+                    raise
+                middle = start + span // 2
+                parts = await asyncio.gather(
+                    fetch(start, middle - 1, depth + 1),
+                    fetch(middle, stop, depth + 1),
+                    return_exceptions=True,
                 )
-            return response.json()
+                recovered: list[dict[str, Any]] = []
+                for part in parts:
+                    if isinstance(part, BaseException):
+                        raise part
+                    recovered.extend(part)
+                return recovered
 
         pages = [first.json()]
         errors: list[dict[str, str]] = []
         if fetch_total > PAGE_SIZE:
             starts = list(range(PAGE_SIZE, fetch_total, PAGE_SIZE))
             results = await asyncio.gather(
-                *(page(start) for start in starts), return_exceptions=True
+                *(fetch(start, min(start + PAGE_SIZE - 1, fetch_total - 1)) for start in starts),
+                return_exceptions=True,
             )
             for start, result in zip(starts, results, strict=True):
                 if isinstance(result, BaseException):
