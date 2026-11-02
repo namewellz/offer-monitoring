@@ -91,7 +91,7 @@ def _collect(db: Session) -> tuple[list[MeatItem], dict[str, int], dict[str, int
     excluded: dict[str, int] = defaultdict(int)
     other_depts = 0
     scanned = 0
-    for row in current_listings(db):
+    for row in current_listings(db, release=True):
         raw_name = row[_IDX["raw_name"]]
         effective = row[_IDX["effective_cents"]]
         scanned += 1

@@ -171,7 +171,7 @@ def _generic_lines(db: Any, rows: Rows | None = None) -> list[dict[str, Any]]:
         return []
 
     listings: dict[int, list[tuple[Any, ...]]] = defaultdict(list)
-    for row in (rows if rows is not None else current_listings(db)):
+    for row in (rows if rows is not None else current_listings(db, release=True)):
         pid = row[_IDX["pid"]]
         if pid not in pids:
             continue
@@ -361,7 +361,7 @@ def _produce_lines(db: Any, rows: Rows | None = None) -> list[dict[str, Any]]:
         return []
 
     entries: list[tuple[int, float, str, str, str]] = []
-    for row in (rows if rows is not None else current_listings(db)):
+    for row in (rows if rows is not None else current_listings(db, release=True)):
         pid = row[_IDX["pid"]]
         if pid not in pids:
             continue

@@ -203,7 +203,9 @@ def current_listings(
         query = query.offset(offset)
     rows = db.execute(query).all()
     if release:
-        db.rollback()
+        # Não descarta writes pendentes da mesma sessão (ex.: seed de categorias
+        # feito antes da leitura): só fecha a transação quando ela é read-only.
+        release_read_transaction(db)
     return rows
 
 

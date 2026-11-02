@@ -99,7 +99,7 @@ def _compute(db: Any, department: str) -> dict[str, Any]:
         }
 
     listings_by_pid: dict[int, list[tuple[Any, ...]]] = defaultdict(list)
-    for row in current_listings(db):
+    for row in current_listings(db, release=True):
         pid = row[_IDX["pid"]]
         if pid not in pids:
             continue

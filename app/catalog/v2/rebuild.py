@@ -147,25 +147,36 @@ WHERE p.store_listing_id = sl.id
 """
 
 
-def backfill_departments(db: Session, *, batch_size: int = 5000) -> dict[str, int]:
-    """Calcula o departamento das versões ainda nulas e propaga aos listings."""
+def backfill_departments(db: Session, *, batch_size: int = 2000) -> dict[str, int]:
+    """Calcula o departamento das versões ainda nulas e propaga aos listings.
+
+    Pagina por ``id`` (usa a PK, não varre a tabela) e usa ``SKIP LOCKED`` para
+    nunca ficar preso atrás de uma coleta em andamento, que mantém uma transação
+    longa reescrevendo versões. Linhas puladas por lock ficam para a próxima
+    execução — o comando é idempotente.
+    """
     versions = 0
+    last_id = 0
     while True:
         pending = db.scalars(
             select(SourceProductVersion)
-            .where(SourceProductVersion.department.is_(None))
+            .where(
+                SourceProductVersion.id > last_id,
+                SourceProductVersion.department.is_(None),
+            )
+            .order_by(SourceProductVersion.id)
             .limit(batch_size)
+            .with_for_update(skip_locked=True, of=SourceProductVersion)
         ).all()
         if not pending:
             break
+        last_id = pending[-1].id
         for version in pending:
             version.department = canonical_department(
                 version.raw_categories, version.raw_name
             )
         db.commit()
         versions += len(pending)
-        if len(pending) < batch_size:
-            break
 
     listings = db.execute(
         text(

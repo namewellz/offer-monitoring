@@ -136,7 +136,9 @@ def _compute(
     if rows is None or not have_llm:
         # fresh_only/accepted_only só pré-filtram no SQL o que o laço abaixo já
         # descarta (preço velho; produto sem accept quando há veredictos).
-        rows = current_listings(db, fresh_only=True, accepted_only=have_llm)
+        rows = current_listings(
+            db, fresh_only=True, accepted_only=have_llm, release=True
+        )
     if release:
         db.rollback()
 

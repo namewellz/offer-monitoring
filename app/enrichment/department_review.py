@@ -27,7 +27,7 @@ def _product_index(db: Any) -> dict[int, dict[str, Any]]:
     from app.catalog.v2.read import current_listings
 
     index: dict[int, dict[str, Any]] = {}
-    for row in current_listings(db):
+    for row in current_listings(db, release=True):
         pid = row[7]
         raw = row[9] or ""
         if pid not in index or len(raw) > len(index[pid]["raw_name"]):
