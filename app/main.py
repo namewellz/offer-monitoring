@@ -288,6 +288,7 @@ def _views_prime(db) -> None:
 
     store("review:Açougue", lambda: butcher_review(db))
     store("review:Mercearia", lambda: department_review(db, "Mercearia"))
+    store("canonical_stats", lambda: v2_canonical_stats(db))
     # caches internos (butcher/produce/lista) também refletem a nova geração
     try:
         from app.enrichment.produce_prices import warm_produce_prices
