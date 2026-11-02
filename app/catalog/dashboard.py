@@ -161,6 +161,10 @@ def render_catalog_dashboard(
         current_sort = result["current_price"] if result["current_price"] is not None else ""
         store = result["store"] or "Todas as lojas"
         observed = result["observed_at"]
+        observed_attr = observed.isoformat() if observed is not None else ""
+        observed_label = (
+            to_local(observed).strftime("%d/%m/%Y %H:%M") if observed is not None else "—"
+        )
         rows.append(
             f'<tr data-product="{escape(result["product"].casefold())}" '
             f'data-retailer="{escape(result["retailer"].casefold())}" '
@@ -169,7 +173,7 @@ def render_catalog_dashboard(
             f'data-previous="{previous_sort}" data-current="{current_sort}" '
             f'data-change="{offer_percent if view == "offers" and offer_percent is not None else percent if percent is not None else ""}" '
             f'data-condition="{escape(result["price_condition_type"])}" '
-            f'data-observed="{observed.isoformat()}">'
+            f'data-observed="{observed_attr}">'
             f'<td data-label="Produto"><strong>{escape(result["product"])}</strong>'
             f'<span class="muted product-meta">{escape(result.get("brand") or "Marca não informada")}</span></td>'
             f'<td data-label="Departamento"><span class="pill">{escape(result["department"])}</span></td>'
@@ -179,7 +183,7 @@ def render_catalog_dashboard(
             f'<td data-label="Preço atual"><strong>{_money(result["current_price"])}</strong></td>'
             f'<td data-label="Condição" class="condition">{escape(result["price_condition"])}</td>'
             f'<td data-label="Variação"><span class="change {css_class}">{variation}</span></td>'
-            f'<td data-label="Coleta"><time datetime="{observed.isoformat()}">{to_local(observed).strftime("%d/%m/%Y %H:%M")}</time></td>'
+            f'<td data-label="Coleta"><time datetime="{observed_attr}">{observed_label}</time></td>'
             "</tr>"
         )
 

@@ -19,6 +19,7 @@ from uuid import uuid4
 from sqlalchemy import insert, select, text
 from sqlalchemy.orm import Session
 
+from app.catalog.taxonomy import canonical_department
 from app.catalog.v2.hashing import cents, digest, price_state
 from app.catalog.v2.ingest import ensure_source, ensure_store, ensure_target
 from app.catalog.v2.registry import CATALOG_SOURCES
@@ -122,6 +123,7 @@ def _backfill_products(
                 raw_brand=legacy.brand,
                 raw_gtin=legacy.ean,
                 raw_categories=legacy.categories or [],
+                department=canonical_department(legacy.categories or [], legacy.name),
                 raw_measure=legacy.measure,
                 raw_product_url=legacy.product_url,
                 raw_image_url=legacy.image_url,

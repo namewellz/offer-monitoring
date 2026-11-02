@@ -79,6 +79,7 @@ def main() -> None:
     commands.add_parser("discover-all")
     commands.add_parser("reclassify-catalog")
     commands.add_parser("backfill-v2")
+    commands.add_parser("backfill-catalog-read-model")
     extract = commands.add_parser("extract")
     extract.add_argument("--flyer", required=True)
     extract.add_argument("--strategy")
@@ -170,6 +171,15 @@ def main() -> None:
         with SessionLocal() as db:
             result = backfill_v2(db)
         print("Backfilled v2 catalog model:")
+        for key, value in result.items():
+            print(f"  {key}: {value}")
+        return
+    if args.command == "backfill-catalog-read-model":
+        from app.catalog.v2.rebuild import rebuild_all
+
+        with SessionLocal() as db:
+            result = rebuild_all(db)
+        print("Catalog read model rebuilt:")
         for key, value in result.items():
             print(f"  {key}: {value}")
         return

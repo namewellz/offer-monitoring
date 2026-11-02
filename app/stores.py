@@ -77,6 +77,39 @@ def apply_store_filter(query, store_model, retailer_model, flt: StoreFilter | No
     return query
 
 
+def apply_listing_store_filter(query, listing_model, flt: StoreFilter | None = None):
+    """Mesmo filtro de loja, mas nas colunas denormalizadas do read model.
+
+    ``store_listings`` guarda ``retailer_slug/name`` e ``store_*`` copiados no
+    ingest, então o filtro contextual (rede/cidade/bairro/tipo/region) roda sem
+    join com ``stores``/``retailers`` — a tela lê uma única tabela.
+    """
+    flt = flt or CURRENT_FILTER.get()
+    if flt.region and "all" not in flt.region:
+        query = query.where(listing_model.store_region_bucket.in_(flt.region))
+    elif not flt.region:
+        query = query.where(
+            or_(
+                listing_model.store_region_bucket.is_(None),
+                listing_model.store_region_bucket != "fora",
+            )
+        )
+    if flt.rede:
+        query = query.where(
+            or_(
+                _folded(listing_model.retailer_slug).in_(flt.rede),
+                _folded(listing_model.retailer_name).in_(flt.rede),
+            )
+        )
+    if flt.cidade:
+        query = query.where(_folded(listing_model.store_city).in_(flt.cidade))
+    if flt.bairro:
+        query = query.where(_folded(listing_model.store_neighborhood).in_(flt.bairro))
+    if flt.tipo:
+        query = query.where(listing_model.store_type.in_(flt.tipo))
+    return query
+
+
 def store_label(store_model):
     """SQL expression: display_name with fallback to the raw name."""
     return func.coalesce(store_model.display_name, store_model.name)
@@ -110,9 +143,47 @@ def list_stores(db: Session, flt: StoreFilter | None = None) -> list[dict[str, A
 
 def refresh_store_labels(db: Session) -> int:
     count = db.execute(text("SELECT refresh_store_labels()")).scalar() or 0
+    refresh_listing_store_columns(db)
     db.commit()
     _LABELS["ts"] = 0.0
     return int(count)
+
+
+def refresh_listing_store_columns(db: Session) -> int:
+    """Reaplica nome/atributos de loja no read model ``store_listings``.
+
+    Chamado quando os metadados de loja mudam (curadoria de nome, região, tipo).
+    Só toca as linhas divergentes, então é barato mesmo com centenas de milhares
+    de listings.
+    """
+    result = db.execute(
+        text(
+            """
+            UPDATE store_listings sl
+            SET retailer_name = r.name,
+                retailer_slug = r.slug,
+                store_name = COALESCE(s.display_name, s.name),
+                store_region_bucket = s.region_bucket,
+                store_city = s.city,
+                store_neighborhood = s.neighborhood,
+                store_type = s.store_type
+            FROM collection_targets ct
+            JOIN stores s ON s.id = ct.store_id
+            JOIN catalog_sources cs ON cs.id = ct.source_id
+            JOIN retailers r ON r.id = cs.retailer_id
+            WHERE ct.id = sl.target_id
+              AND (sl.retailer_name IS DISTINCT FROM r.name
+                   OR sl.retailer_slug IS DISTINCT FROM r.slug
+                   OR sl.store_name IS DISTINCT FROM COALESCE(s.display_name, s.name)
+                   OR sl.store_region_bucket IS DISTINCT FROM s.region_bucket
+                   OR sl.store_city IS DISTINCT FROM s.city
+                   OR sl.store_neighborhood IS DISTINCT FROM s.neighborhood
+                   OR sl.store_type IS DISTINCT FROM s.store_type)
+            """
+        )
+    )
+    db.commit()
+    return int(result.rowcount or 0)
 
 
 _LABELS: dict[str, Any] = {"ts": 0.0, "map": {}}

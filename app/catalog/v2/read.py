@@ -1,10 +1,12 @@
 """Read-side queries for the v2 catalog model.
 
-These replace the legacy ``catalog_products``/``catalog_price_observations``
-reads with ``store_listings`` + ``price_periods`` (section 15 of the
-architecture document). Current state is always the open period of a listing;
-changes are computed by comparing the open period with the immediately
-preceding period, never from persisted derived columns.
+A tela do catálogo lê o **read model** ``store_listings`` (colunas derivadas na
+escrita): filtro, contagem, ordenação e paginação acontecem no Postgres e o
+Python formata apenas a página visível.
+
+O histórico vem de ``price_periods`` (append-only) e os utilitários de
+``current_listings``/``row_result`` continuam existindo para a classificação e
+para as telas legadas, que precisam do estado aberto sem a projeção.
 """
 
 from __future__ import annotations
@@ -13,12 +15,11 @@ from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, aliased
 
 from app.catalog.taxonomy import canonical_department
 from app.db.models import Retailer, Store
-from app.stores import apply_store_filter, store_label
 from app.db.models_v2 import (
     CatalogSource,
     CollectionTarget,
@@ -28,6 +29,7 @@ from app.db.models_v2 import (
     SourceProductVersion,
     StoreListing,
 )
+from app.stores import apply_listing_store_filter, apply_store_filter, store_label
 
 # Preço exibido só é considerado válido se foi confirmado há no máximo 2 dias.
 # Cada coleta atualiza last_confirmed_at do período aberto, o que valida que o
@@ -90,33 +92,6 @@ def shelf_previous_cents(
     ):
         return previous_regular
     return previous_effective
-
-
-def _comparable_previous_cents(open_period: Any, previous: Any) -> Any:
-    """SQL twin of ``shelf_previous_cents`` for the changes filter and sort."""
-    term_count = case(
-        (
-            func.jsonb_typeof(open_period.price_terms) == "array",
-            func.jsonb_array_length(open_period.price_terms),
-        ),
-        else_=0,
-    )
-    current_is_final = and_(
-        open_period.best_conditional_price_cents.is_(None),
-        term_count == 0,
-        or_(
-            open_period.regular_price_cents.is_(None),
-            open_period.effective_price_cents == open_period.regular_price_cents,
-        ),
-    )
-    previous_was_discount = and_(
-        previous.regular_price_cents.is_not(None),
-        previous.effective_price_cents < previous.regular_price_cents,
-    )
-    return case(
-        (and_(current_is_final, previous_was_discount), previous.regular_price_cents),
-        else_=previous.effective_price_cents,
-    )
 
 
 def _terms(terms: Any) -> list[dict[str, Any]]:
@@ -433,113 +408,6 @@ def row_result(row: tuple[Any, ...], department: str | None = None) -> dict[str,
     }
 
 
-def _filtered_listings_query(
-    *,
-    product: str | None,
-    retailer: str | None,
-    offers_only: bool,
-    changes_only: bool,
-    direction: str,
-    minimum_percent: float,
-):
-    open_period = aliased(PricePeriod)
-    previous = aliased(PricePeriod)
-    query = (
-        select(
-            StoreListing.id,
-            open_period.regular_price_cents,
-            open_period.effective_price_cents,
-            open_period.best_conditional_price_cents,
-            open_period.price_terms,
-            open_period.last_confirmed_at,
-            previous.effective_price_cents,
-            SourceProduct.id,
-            SourceProduct.external_id,
-            SourceProductVersion.raw_name,
-            SourceProductVersion.raw_brand,
-            SourceProductVersion.raw_gtin,
-            SourceProductVersion.raw_categories,
-            Retailer.name,
-            Retailer.slug,
-            store_label(Store),
-            open_period.price_basis_unit,
-            previous.regular_price_cents,
-        )
-        .join(
-            open_period,
-            and_(
-                open_period.store_listing_id == StoreListing.id,
-                open_period.ended_at.is_(None),
-            ),
-        )
-        .outerjoin(
-            previous,
-            and_(
-                previous.store_listing_id == StoreListing.id,
-                previous.version == open_period.version - 1,
-            ),
-        )
-        .join(SourceProduct, SourceProduct.id == StoreListing.source_product_id)
-        .join(
-            SourceProductVersion,
-            SourceProductVersion.id == SourceProduct.current_version_id,
-        )
-        .join(CatalogSource, CatalogSource.id == SourceProduct.source_id)
-        .join(Retailer, Retailer.id == CatalogSource.retailer_id)
-        .join(CollectionTarget, CollectionTarget.id == StoreListing.target_id)
-        .join(Store, Store.id == CollectionTarget.store_id)
-        .where(StoreListing.active.is_(True))
-    )
-    query = apply_store_filter(query, Store, Retailer)
-    if product:
-        query = query.where(SourceProductVersion.raw_name.ilike(f"%{product}%"))
-    if retailer:
-        query = query.where(Retailer.slug == retailer)
-    if offers_only:
-        query = query.where(
-            or_(
-                and_(
-                    open_period.regular_price_cents.is_not(None),
-                    open_period.effective_price_cents < open_period.regular_price_cents,
-                ),
-                open_period.best_conditional_price_cents.is_not(None),
-                func.jsonb_array_length(open_period.price_terms) > 0,
-            )
-        )
-        query = query.order_by(
-            (open_period.regular_price_cents - open_period.effective_price_cents)
-            .desc()
-            .nulls_last(),
-            SourceProductVersion.raw_name,
-        )
-    elif changes_only:
-        baseline = _comparable_previous_cents(open_period, previous)
-        query = query.where(
-            baseline.is_not(None),
-            open_period.effective_price_cents.is_distinct_from(baseline),
-        )
-        if minimum_percent > 0:
-            query = query.where(
-                func.abs(open_period.effective_price_cents - baseline) * 100.0
-                >= minimum_percent * baseline
-            )
-        if direction == "up":
-            query = query.where(open_period.effective_price_cents > baseline)
-        elif direction == "down":
-            query = query.where(open_period.effective_price_cents < baseline)
-        query = query.order_by(
-            func.abs(
-                (open_period.effective_price_cents - baseline) * 1.0 / baseline
-            )
-            .desc()
-            .nulls_last(),
-            SourceProductVersion.raw_name,
-        )
-    else:
-        query = query.order_by(SourceProductVersion.raw_name)
-    return query
-
-
 def price_results(
     db: Session,
     *,
@@ -549,25 +417,27 @@ def price_results(
     direction: str = "all",
     minimum_percent: float = 0,
     view: str = "all",
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
+    """Página (ou série) do read model, filtrada e ordenada no Postgres."""
     if direction not in {"all", "up", "down"}:
         raise ValueError("direction must be all, up or down")
-    offers_only = view == "offers"
-    changes_only = view == "changes"
-    query = _filtered_listings_query(
+    query = _listing_query(
         product=product,
         retailer=retailer,
-        offers_only=offers_only,
-        changes_only=changes_only,
+        department=department,
         direction=direction,
         minimum_percent=minimum_percent,
+        view=view,
     )
-    results: list[dict[str, Any]] = []
-    for row in db.execute(query).all():
-        dep = canonical_department(row[12], row[9])
-        if department and dep != department:
-            continue
-        results.append(row_result(row, department=dep))
+    if offset:
+        query = query.offset(max(offset, 0))
+    if limit is not None:
+        query = query.limit(max(limit, 1))
+    listings = db.scalars(query).all()
+    results = [listing_result(listing) for listing in listings]
+    release_read_transaction(db)
     return results
 
 
@@ -581,9 +451,203 @@ def price_result_count(
     minimum_percent: float = 0,
     view: str = "all",
 ) -> int:
-    return len(
-        price_results(
-            db,
+    if direction not in {"all", "up", "down"}:
+        raise ValueError("direction must be all, up or down")
+    conditions = _listing_conditions(
+        product=product,
+        retailer=retailer,
+        department=department,
+        direction=direction,
+        minimum_percent=minimum_percent,
+        view=view,
+    )
+    query = select(func.count()).select_from(StoreListing).where(*conditions)
+    query = apply_listing_store_filter(query, StoreListing)
+    total = int(db.scalar(query) or 0)
+    release_read_transaction(db)
+    return total
+
+
+# ---------------------------------------------------------------------------
+# Read model: a tela lê ``store_listings`` sozinho.
+#
+# Tudo o que a página precisa (departamento, nome, preço, variação, loja) já foi
+# derivado no ingest. Aqui só existem WHERE/ORDER BY/LIMIT em SQL e a formatação
+# dos ~100 registros da página — nunca um filtro em Python sobre a base inteira.
+# ---------------------------------------------------------------------------
+
+
+def _listing_conditions(
+    *,
+    product: str | None,
+    retailer: str | None,
+    department: str | None,
+    direction: str,
+    minimum_percent: float,
+    view: str,
+) -> list[Any]:
+    conditions: list[Any] = [
+        StoreListing.active.is_(True),
+        # Paridade com o antigo INNER JOIN no período aberto: listing sem preço
+        # conhecido não aparece na tela (e não tem last_confirmed_at).
+        StoreListing.effective_price_cents.is_not(None),
+    ]
+    if product:
+        conditions.append(StoreListing.product_name.ilike(f"%{product}%"))
+    if retailer:
+        conditions.append(StoreListing.retailer_slug == retailer)
+    if department:
+        conditions.append(StoreListing.department == department)
+    if view == "offers":
+        conditions.append(StoreListing.is_offer.is_(True))
+    else:
+        if view == "changes":
+            conditions.append(StoreListing.change_percent.is_not(None))
+            conditions.append(StoreListing.change_percent != 0)
+        if minimum_percent > 0:
+            conditions.append(func.abs(StoreListing.change_percent) >= minimum_percent)
+        if direction == "up":
+            conditions.append(StoreListing.change_percent > 0)
+        elif direction == "down":
+            conditions.append(StoreListing.change_percent < 0)
+    return conditions
+
+
+def _listing_ordering(view: str) -> tuple[Any, ...]:
+    if view == "offers":
+        return (
+            (StoreListing.regular_price_cents - StoreListing.effective_price_cents)
+            .desc()
+            .nulls_last(),
+            StoreListing.product_name,
+        )
+    if view == "changes":
+        return (
+            func.abs(StoreListing.change_percent).desc().nulls_last(),
+            StoreListing.product_name,
+        )
+    return (StoreListing.product_name,)
+
+
+def _listing_query(
+    *,
+    product: str | None,
+    retailer: str | None,
+    department: str | None,
+    direction: str,
+    minimum_percent: float,
+    view: str,
+):
+    """SELECT sobre o read model, já com os filtros de loja do contexto."""
+    conditions = _listing_conditions(
+        product=product,
+        retailer=retailer,
+        department=department,
+        direction=direction,
+        minimum_percent=minimum_percent,
+        view=view,
+    )
+    query = select(StoreListing).where(*conditions)
+    query = apply_listing_store_filter(query, StoreListing)
+    return query.order_by(*_listing_ordering(view))
+
+
+def listing_result(listing: StoreListing) -> dict[str, Any]:
+    """Formata uma linha do read model no dicionário que a tela/CSV consomem."""
+    regular = _money(listing.regular_price_cents)
+    current = _money(listing.effective_price_cents)
+    previous_price = _money(listing.previous_cents)
+    change_amount = _money(listing.change_amount_cents)
+    change_percent = (
+        Decimal(listing.change_percent) if listing.change_percent is not None else None
+    )
+    price_condition, price_condition_type = _condition(
+        listing.best_conditional_cents, listing.price_terms, regular, current
+    )
+    trend = (
+        "sem referência anterior"
+        if change_percent is None
+        else "mais caro"
+        if change_percent > 0
+        else "mais barato"
+        if change_percent < 0
+        else "sem alteração"
+    )
+    product_name = listing.product_name or ""
+    return {
+        "product_id": listing.source_product_id,
+        "listing_id": listing.id,
+        "external_id": listing.product_external_id,
+        "ean": listing.product_gtin,
+        "product": product_name,
+        "brand": listing.product_brand,
+        "department": listing.department or "Outros",
+        "source_categories": listing.product_categories or [],
+        "retailer": listing.retailer_name or "",
+        "retailer_slug": listing.retailer_slug or "",
+        "store": listing.store_name,
+        "observed_at": listing.last_confirmed_at,
+        "previous_price": previous_price,
+        "regular_price": regular,
+        "current_price": current,
+        "discount": (
+            (regular - current).quantize(Decimal("0.01"))
+            if regular is not None and current is not None and regular > current
+            else None
+        ),
+        "change_amount": change_amount,
+        "change_percent": change_percent,
+        "price_condition": price_condition,
+        "price_condition_type": price_condition_type,
+        "trend": trend,
+        "summary": (
+            f"{product_name}: {abs(change_percent):.2f}% {trend}"
+            if change_percent is not None
+            else f"{product_name}: {trend}"
+        ),
+        "is_offer": bool(listing.is_offer),
+        "offer_kind": listing.offer_kind,
+    }
+
+
+def release_read_transaction(db: Session) -> None:
+    """Fecha a transação de leitura sem descartar writes pendentes.
+
+    Sem isso a conexão fica ``idle in transaction`` enquanto o template/CSV é
+    montado, o que já travou ``CREATE INDEX CONCURRENTLY`` em produção.
+    """
+    if db.new or db.dirty or db.deleted:
+        return
+    db.rollback()
+
+
+def price_page(
+    db: Session,
+    *,
+    product: str | None = None,
+    retailer: str | None = None,
+    department: str | None = None,
+    direction: str = "all",
+    minimum_percent: float = 0,
+    view: str = "all",
+    limit: int = 100,
+    offset: int = 0,
+    with_total: bool = True,
+) -> tuple[int | None, list[dict[str, Any]]]:
+    """Uma página do read model + total, tudo calculado no Postgres."""
+    if direction not in {"all", "up", "down"}:
+        raise ValueError("direction must be all, up or down")
+    query = _listing_query(
+        product=product,
+        retailer=retailer,
+        department=department,
+        direction=direction,
+        minimum_percent=minimum_percent,
+        view=view,
+    )
+    total: int | None = None
+    if with_total:
+        conditions = _listing_conditions(
             product=product,
             retailer=retailer,
             department=department,
@@ -591,7 +655,28 @@ def price_result_count(
             minimum_percent=minimum_percent,
             view=view,
         )
+        count_query = select(func.count()).select_from(StoreListing).where(*conditions)
+        count_query = apply_listing_store_filter(count_query, StoreListing)
+        total = int(db.scalar(count_query) or 0)
+    listings = db.scalars(
+        query.offset(max(offset, 0)).limit(max(limit, 1))
+    ).all()
+    results = [listing_result(listing) for listing in listings]
+    # Formata antes de fechar: rollback expira os objetos e cada atributo lido
+    # depois dispararia um SELECT novo.
+    release_read_transaction(db)
+    return total, results
+
+
+def listing_department_counts(db: Session) -> dict[str, int]:
+    """Contagem por departamento em um GROUP BY indexado."""
+    query = select(StoreListing.department, func.count()).where(
+        StoreListing.active.is_(True)
     )
+    query = apply_listing_store_filter(query, StoreListing)
+    rows = db.execute(query.group_by(StoreListing.department)).all()
+    release_read_transaction(db)
+    return {(department or "Outros"): int(count) for department, count in rows}
 
 
 def price_history_results(
@@ -645,7 +730,8 @@ def price_history_results(
                 "external_id": product.external_id,
                 "ean": version.raw_gtin,
                 "product": version.raw_name,
-                "department": canonical_department(version.raw_categories, version.raw_name),
+                "department": version.department
+                or canonical_department(version.raw_categories, version.raw_name),
                 "source_categories": version.raw_categories,
                 "retailer": catalog_retailer.name,
                 "retailer_slug": catalog_retailer.slug,
@@ -667,8 +753,4 @@ def price_history_results(
 
 
 def department_counts(db: Session) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for row in current_listings(db):
-        department = canonical_department(row[12], row[9])
-        counts[department] = counts.get(department, 0) + 1
-    return counts
+    return listing_department_counts(db)

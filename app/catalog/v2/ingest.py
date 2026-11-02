@@ -16,18 +16,21 @@ from __future__ import annotations
 import re
 import unicodedata
 from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.catalog.taxonomy import canonical_department
 from app.catalog.v2.hashing import (
     digest,
     identity_input_state,
     price_state,
     source_product_state,
 )
+from app.catalog.v2.read import shelf_previous_cents
 from app.catalog.v2.registry import (
     CATALOG_SOURCES,
     COLLECTOR_VERSION,
@@ -279,6 +282,10 @@ def _upsert_source_product(
             raw_brand=_bounded(raw.get("brand"), 160),
             raw_gtin=_bounded(raw.get("ean"), 32),
             raw_categories=[str(c) for c in (raw.get("categories") or [])],
+            department=canonical_department(
+                [str(c) for c in (raw.get("categories") or [])],
+                str(raw.get("name") or ""),
+            ),
             raw_measure=_bounded(raw.get("measure"), 50),
             raw_product_url=raw.get("product_url"),
             raw_image_url=raw.get("image_url"),
@@ -299,14 +306,120 @@ def _upsert_source_product(
     return product, version, is_new_product, is_new_version
 
 
+def _is_offer(
+    regular_cents: int | None,
+    effective_cents: int | None,
+    best_conditional: int | None,
+    terms: list[dict[str, Any]],
+) -> bool:
+    if (
+        regular_cents is not None
+        and effective_cents is not None
+        and effective_cents < regular_cents
+    ):
+        return True
+    if best_conditional is not None:
+        return True
+    return bool(terms)
+
+
+def _offer_kind(
+    regular_cents: int | None,
+    effective_cents: int | None,
+    best_conditional: int | None,
+    terms: list[dict[str, Any]],
+) -> str | None:
+    """Classifica a oferta na escrita, para o filtro/ordenação não derivar na leitura."""
+    tiers = [term for term in terms if term.get("kind") == "tier"]
+    tags = [term for term in terms if term.get("kind") == "tag"]
+    if best_conditional is not None or any(
+        term.get("condition") == "club" for term in tiers
+    ):
+        return "club"
+    if any(term.get("condition") == "wholesale" for term in tiers):
+        return "wholesale"
+    if any(term.get("condition") == "app" for term in tiers):
+        return "app"
+    if any(
+        int(term.get("minimum_quantity") or 1) > 1
+        and term.get("condition", "quantity") == "quantity"
+        for term in tiers
+    ):
+        return "quantity"
+    if tags:
+        return "promotion"
+    if (
+        regular_cents is not None
+        and effective_cents is not None
+        and effective_cents < regular_cents
+    ):
+        return "price_drop"
+    return None
+
+
+def _sync_listing_snapshot(
+    listing: StoreListing,
+    period: PricePeriod,
+    previous: PricePeriod | None,
+    changed: bool,
+) -> None:
+    """Escreve no read model o estado que a tela vai ler (sem derivar depois)."""
+    terms = [term for term in (period.price_terms or []) if isinstance(term, dict)]
+    listing.price_terms = terms
+    listing.regular_price_cents = period.regular_price_cents
+    listing.effective_price_cents = period.effective_price_cents
+    listing.best_conditional_cents = period.best_conditional_price_cents
+    listing.price_basis_unit = period.price_basis_unit
+    listing.last_confirmed_at = period.last_confirmed_at
+    listing.is_offer = _is_offer(
+        period.regular_price_cents,
+        period.effective_price_cents,
+        period.best_conditional_price_cents,
+        terms,
+    )
+    listing.offer_kind = _offer_kind(
+        period.regular_price_cents,
+        period.effective_price_cents,
+        period.best_conditional_price_cents,
+        terms,
+    )
+    if not changed:
+        return
+    baseline = shelf_previous_cents(
+        current_cents=period.effective_price_cents,
+        regular_cents=period.regular_price_cents,
+        best_conditional=period.best_conditional_price_cents,
+        terms=terms,
+        previous_effective=previous.effective_price_cents if previous else None,
+        previous_regular=previous.regular_price_cents if previous else None,
+    )
+    listing.previous_cents = baseline
+    if baseline is not None and baseline > 0:
+        amount = period.effective_price_cents - baseline
+        listing.change_amount_cents = amount
+        listing.change_percent = (
+            Decimal(amount) * 100 / Decimal(baseline)
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    else:
+        listing.change_amount_cents = None
+        listing.change_percent = None
+
+
 def _apply_price_period(
     db: Session,
     run: CollectionRun,
     listing: StoreListing,
     raw: dict[str, Any],
     observed_at: datetime,
-) -> bool:
-    """Apply one incoming price observation. Returns True when a period was created."""
+) -> tuple[PricePeriod | None, PricePeriod | None, bool]:
+    """Apply one incoming price observation.
+
+    Returns ``(open_period, previous_period, changed)``:
+
+    - ``(None, None, False)`` — delayed collection, ignored (section 9.6);
+    - ``(open_period, None, False)`` — same state, only re-confirmed;
+    - ``(new_period, previous_period, True)`` — a period was created.
+    """
     state = price_state(
         regular_price=raw.get("regular_price"),
         effective_price=raw.get("sales_price"),
@@ -338,41 +451,9 @@ def _apply_price_period(
     )
 
     if open_period is None:
-        db.add(
-            PricePeriod(
-                store_listing_id=listing.id,
-                version=1,
-                started_at=observed_at,
-                last_confirmed_at=observed_at,
-                first_run_id=run.id,
-                last_run_id=run.id,
-                confirmation_count=1,
-                currency=state["currency"],
-                regular_price_cents=regular_cents,
-                effective_price_cents=state["effective_price_cents"],
-                best_conditional_price_cents=state["best_conditional_price_cents"],
-                price_basis_unit=state["price_basis_unit"],
-                price_terms=price_terms,
-                state_hash=state_hash,
-            )
-        )
-        return True
-
-    # A delayed collection must never replace the current state (section 9.6).
-    if observed_at < open_period.started_at:
-        return False
-
-    if open_period.state_hash == state_hash:
-        open_period.confirmation_count += 1
-        open_period.last_confirmed_at = max(observed_at, open_period.last_confirmed_at)
-        open_period.last_run_id = run.id
-        return False
-
-    open_period.ended_at = observed_at
-    db.add(
-        PricePeriod(
+        period = PricePeriod(
             store_listing_id=listing.id,
-            version=open_period.version + 1,
+            version=1,
             started_at=observed_at,
             last_confirmed_at=observed_at,
             first_run_id=run.id,
@@ -386,8 +467,38 @@ def _apply_price_period(
             price_terms=price_terms,
             state_hash=state_hash,
         )
+        db.add(period)
+        return period, None, True
+
+    # A delayed collection must never replace the current state (section 9.6).
+    if observed_at < open_period.started_at:
+        return None, None, False
+
+    if open_period.state_hash == state_hash:
+        open_period.confirmation_count += 1
+        open_period.last_confirmed_at = max(observed_at, open_period.last_confirmed_at)
+        open_period.last_run_id = run.id
+        return open_period, None, False
+
+    open_period.ended_at = observed_at
+    period = PricePeriod(
+        store_listing_id=listing.id,
+        version=open_period.version + 1,
+        started_at=observed_at,
+        last_confirmed_at=observed_at,
+        first_run_id=run.id,
+        last_run_id=run.id,
+        confirmation_count=1,
+        currency=state["currency"],
+        regular_price_cents=regular_cents,
+        effective_price_cents=state["effective_price_cents"],
+        best_conditional_price_cents=state["best_conditional_price_cents"],
+        price_basis_unit=state["price_basis_unit"],
+        price_terms=price_terms,
+        state_hash=state_hash,
     )
-    return True
+    db.add(period)
+    return period, open_period, True
 
 
 def record_errors(db: Session, run: CollectionRun, catalog: dict[str, Any]) -> None:
@@ -463,7 +574,7 @@ def ingest_catalog_v2(
     periods_created = 0
 
     for raw in products:
-        product, _version, is_new_product, is_new_version = _upsert_source_product(
+        product, version, is_new_product, is_new_version = _upsert_source_product(
             db, run, source, raw, observed_at
         )
         listing = db.scalar(
@@ -489,6 +600,24 @@ def ingest_catalog_v2(
         listing.last_seen_at = observed_at
         listing.last_seen_run_id = run.id
 
+        # Read model: produto + loja/rede copiados aqui para a tela nunca precisar
+        # de join. O departamento vem da versão (calculado na criação da versão).
+        listing.department = version.department or canonical_department(
+            version.raw_categories, version.raw_name
+        )
+        listing.product_external_id = product.external_id
+        listing.product_name = version.raw_name
+        listing.product_brand = version.raw_brand
+        listing.product_gtin = version.raw_gtin
+        listing.product_categories = version.raw_categories
+        listing.retailer_name = retailer.name
+        listing.retailer_slug = retailer.slug
+        listing.store_name = target_store.display_name or target_store.name
+        listing.store_region_bucket = target_store.region_bucket
+        listing.store_city = target_store.city
+        listing.store_neighborhood = target_store.neighborhood
+        listing.store_type = target_store.store_type
+
         if is_new_product:
             items_new += 1
         elif is_new_version:
@@ -498,7 +627,12 @@ def ingest_catalog_v2(
 
         if listing.price_status == "KNOWN":
             items_priced += 1
-            if _apply_price_period(db, run, listing, raw, observed_at):
+            period, previous, changed = _apply_price_period(
+                db, run, listing, raw, observed_at
+            )
+            if period is not None:
+                _sync_listing_snapshot(listing, period, previous, changed)
+            if changed:
                 periods_created += 1
 
     finish_run(

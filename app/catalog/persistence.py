@@ -136,86 +136,94 @@ def _persist_catalog(
     db.add(run)
     db.flush()
 
-    existing_products = {
-        item.external_id: item
-        for item in db.scalars(
-            select(CatalogProduct).where(CatalogProduct.retailer_id == retailer.id)
-        ).all()
-    }
-    # The previous observation of every product of the retailer is looked up with a
-    # JOIN, not with `product_id IN (...)`. A retailer with tens of thousands of
-    # SKUs (Atacadão passes 65k once the Campinas branches are in) blows past the
-    # 65.535 bind-parameter limit of the PostgreSQL wire protocol and the whole
-    # insert aborts with `number of parameters must be between 0 and 65535`.
-    previous_observations = {
-        observation.product_id: observation
-        for observation in db.scalars(
-            previous_observations_query(
-                retailer_id=retailer.id, store_id=store.id if store else None, observed_at=observed_at
+    # O histórico vive em ``price_periods`` (v2). O dual-write para as tabelas
+    # legadas (``catalog_products``/``catalog_price_observations``) crescia ~600
+    # mil linhas por dia e duplicava tudo; fica desligado por padrão e a tabela
+    # antiga fica congelada como arquivo. ``LEGACY_CATALOG_WRITE_ENABLED=true``
+    # reativa o caminho antigo (só para emergência/rollback).
+    if get_settings().legacy_catalog_write_enabled:
+        existing_products = {
+            item.external_id: item
+            for item in db.scalars(
+                select(CatalogProduct).where(CatalogProduct.retailer_id == retailer.id)
+            ).all()
+        }
+        # The previous observation of every product of the retailer is looked up with a
+        # JOIN, not with `product_id IN (...)`. A retailer with tens of thousands of
+        # SKUs (Atacadão passes 65k once the Campinas branches are in) blows past the
+        # 65.535 bind-parameter limit of the PostgreSQL wire protocol and the whole
+        # insert aborts with `number of parameters must be between 0 and 65535`.
+        previous_observations = {
+            observation.product_id: observation
+            for observation in db.scalars(
+                previous_observations_query(
+                    retailer_id=retailer.id,
+                    store_id=store.id if store else None,
+                    observed_at=observed_at,
+                )
+            ).all()
+        }
+        for raw in products:
+            source_categories = raw.get("categories") or []
+            department = canonical_department(source_categories, raw["name"])
+            product = existing_products.get(raw["id"])
+            if product is None:
+                product = CatalogProduct(
+                    retailer_id=retailer.id,
+                    external_id=raw["id"],
+                    name=raw["name"],
+                    brand=_bounded(raw.get("brand"), 160),
+                    categories=source_categories,
+                    department=department,
+                    measure=_bounded(raw.get("measure"), 50),
+                    product_url=raw.get("product_url"),
+                    image_url=raw.get("image_url"),
+                    ean=_bounded(raw.get("ean"), 32),
+                    internal_code=_bounded(raw.get("internal_code"), 120),
+                    first_seen_at=observed_at,
+                    last_seen_at=observed_at,
+                )
+                db.add(product)
+                db.flush()
+                existing_products[raw["id"]] = product
+            product.name = raw["name"]
+            product.brand = _bounded(raw.get("brand"), 160)
+            product.categories = source_categories
+            product.department = department
+            product.measure = _bounded(raw.get("measure"), 50)
+            product.product_url = raw.get("product_url")
+            product.image_url = raw.get("image_url")
+            product.ean = _bounded(raw.get("ean"), 32)
+            product.internal_code = _bounded(raw.get("internal_code"), 120)
+            product.last_seen_at = observed_at
+            current_price = _decimal(raw.get("sales_price"))
+            previous_observation = previous_observations.get(product.id)
+            previous_price = (
+                previous_observation.sales_price
+                if previous_observation is not None
+                else None
             )
-        ).all()
-    }
-    for raw in products:
-        source_categories = raw.get("categories") or []
-        department = canonical_department(source_categories, raw["name"])
-        product = existing_products.get(raw["id"])
-        if product is None:
-            product = CatalogProduct(
-                retailer_id=retailer.id,
-                external_id=raw["id"],
-                name=raw["name"],
-                brand=_bounded(raw.get("brand"), 160),
-                categories=source_categories,
-                department=department,
-                measure=_bounded(raw.get("measure"), 50),
-                product_url=raw.get("product_url"),
-                image_url=raw.get("image_url"),
-                ean=_bounded(raw.get("ean"), 32),
-                internal_code=_bounded(raw.get("internal_code"), 120),
-                first_seen_at=observed_at,
-                last_seen_at=observed_at,
+            change_amount, change_percent = price_change(current_price, previous_price)
+            db.add(
+                CatalogPriceObservation(
+                    run_id=run.id,
+                    product_id=product.id,
+                    store_id=store.id if store else None,
+                    observed_at=observed_at,
+                    available=bool(raw.get("available")),
+                    stock=_decimal(raw.get("stock")),
+                    regular_price=_decimal(raw.get("regular_price")),
+                    sales_price=current_price,
+                    previous_sales_price=previous_price,
+                    price_change_amount=change_amount,
+                    price_change_percent=change_percent,
+                    offer_tags=raw.get("offer_tags") or [],
+                    discount=_decimal(raw.get("discount")),
+                    tier_prices=raw.get("tier_prices") or [],
+                )
             )
-            db.add(product)
-            db.flush()
-            existing_products[raw["id"]] = product
-        product.name = raw["name"]
-        product.brand = _bounded(raw.get("brand"), 160)
-        product.categories = source_categories
-        product.department = department
-        product.measure = _bounded(raw.get("measure"), 50)
-        product.product_url = raw.get("product_url")
-        product.image_url = raw.get("image_url")
-        product.ean = _bounded(raw.get("ean"), 32)
-        product.internal_code = _bounded(raw.get("internal_code"), 120)
-        product.last_seen_at = observed_at
-        current_price = _decimal(raw.get("sales_price"))
-        previous_observation = previous_observations.get(product.id)
-        previous_price = (
-            previous_observation.sales_price if previous_observation is not None else None
-        )
-        change_amount, change_percent = price_change(current_price, previous_price)
-        db.add(
-            CatalogPriceObservation(
-                run_id=run.id,
-                product_id=product.id,
-                store_id=store.id if store else None,
-                observed_at=observed_at,
-                available=bool(raw.get("available")),
-                stock=_decimal(raw.get("stock")),
-                regular_price=_decimal(raw.get("regular_price")),
-                sales_price=current_price,
-                previous_sales_price=previous_price,
-                price_change_amount=change_amount,
-                price_change_percent=change_percent,
-                offer_tags=raw.get("offer_tags") or [],
-                discount=_decimal(raw.get("discount")),
-                tier_prices=raw.get("tier_prices") or [],
-            )
-        )
-    # Dual-write into the v2 model (section 20.3 of the architecture document).
-    # Both models share this transaction: a v2 failure rolls the legacy write
-    # back too, so no partial merge is ever visible. Set CATALOG_V2_ENABLED=false
-    # to disable v2 without reverting the code.
+    # Write v2: fonte de verdade do catálogo (store_listings + price_periods).
+    # Set CATALOG_V2_ENABLED=false to disable it without reverting the code.
     if get_settings().catalog_v2_enabled:
         ingest_catalog_v2(db, catalog, retailer=retailer, store=store)
     db.commit()

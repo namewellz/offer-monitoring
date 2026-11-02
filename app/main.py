@@ -25,12 +25,6 @@ from app.catalog.taxonomy import CANONICAL_DEPARTMENTS
 from app.catalog.update_dashboard import render_update_dashboard
 from app.core.timezone import to_local
 from app.catalog.v2.read import (
-    count_current_listings as v2_count_current_listings,
-)
-from app.catalog.v2.read import (
-    current_listings as v2_current_listings,
-)
-from app.catalog.v2.read import (
     department_counts as v2_department_counts,
 )
 from app.catalog.v2.read import (
@@ -40,10 +34,13 @@ from app.catalog.v2.read import (
     price_history_results as v2_price_history_results,
 )
 from app.catalog.v2.read import (
-    price_results as v2_price_results,
+    price_page as v2_price_page,
 )
 from app.catalog.v2.read import (
-    row_result as v2_row_result,
+    price_result_count as v2_price_result_count,
+)
+from app.catalog.v2.read import (
+    price_results as v2_price_results,
 )
 from app.classification.canonical import (
     category_counts,
@@ -281,11 +278,6 @@ def _views_prime(db) -> None:
 
     store("review:Açougue", lambda: butcher_review(db))
     store("review:Mercearia", lambda: department_review(db, "Mercearia"))
-    for view in ("offers", "changes"):
-        store(
-            f"v2results|None|None|None|all|0|{view}",
-            lambda v=view: v2_price_results(db, view=v),
-        )
     # caches internos (butcher/produce/lista) também refletem a nova geração
     try:
         from app.enrichment.produce_prices import warm_produce_prices
@@ -912,7 +904,8 @@ def v2_catalog_price_changes(
             direction=direction,
             minimum_percent=minimum_percent,
             view="changes",
-        )[: min(max(limit, 1), 1000)]
+            limit=min(max(limit, 1), 1000),
+        )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
 
@@ -928,18 +921,8 @@ def v2_catalog_prices(
     offset: int = 0,
     db: Session = Depends(get_db),
 ):
-    fast = department is None and direction == "all" and minimum_percent == 0
-    if fast:
-        rows = v2_current_listings(
-            db,
-            product=product,
-            retailer=retailer,
-            limit=min(max(limit, 1), 1000),
-            offset=max(offset, 0),
-        )
-        return [v2_row_result(row) for row in rows]
     try:
-        results = v2_price_results(
+        return v2_price_results(
             db,
             product=product,
             retailer=retailer,
@@ -947,10 +930,11 @@ def v2_catalog_prices(
             direction=direction,
             minimum_percent=minimum_percent,
             view="all",
+            limit=min(max(limit, 1), 1000),
+            offset=max(offset, 0),
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
-    return results[max(offset, 0) : max(offset, 0) + min(max(limit, 1), 1000)]
 
 
 @app.get("/catalog/v2/offers")
@@ -968,8 +952,10 @@ def v2_catalog_offers(
         retailer=retailer,
         department=department,
         view="offers",
+        limit=min(max(limit, 1), 1000),
+        offset=max(offset, 0),
     )
-    return results[max(offset, 0) : max(offset, 0) + min(max(limit, 1), 1000)]
+    return results
 
 
 @app.get("/catalog/v2/price-history")
@@ -1388,46 +1374,19 @@ def catalog_update_dashboard(db: Session = Depends(get_db)):
 
 
 def _iter_catalog_csv(
-    *,
-    product: str | None,
-    retailer: str | None,
-    department: str | None,
-    direction: str,
-    minimum_percent: float,
-    view: str,
+    *, product: str | None, retailer: str | None, department: str | None,
+    direction: str, minimum_percent: float, view: str,
 ):
-    """Yield the filtered price rows. The session stays open until the file ends."""
+    """Yield the filtered price rows in batches, straight from the read model."""
     from app.db.session import SessionLocal
 
     with SessionLocal() as db:
         yield "\ufeff"
         yield catalog_csv_header(view)
-        fast_path = view == "all" and department is None and direction == "all" and minimum_percent == 0
-        if fast_path:
-            offset = 0
-            batch = 2000
-            while True:
-                rows = v2_current_listings(
-                    db,
-                    product=product,
-                    retailer=retailer,
-                    limit=batch,
-                    offset=offset,
-                )
-                if not rows:
-                    break
-                yield catalog_csv_rows([v2_row_result(row) for row in rows], view)
-                offset += batch
-                if len(rows) < batch:
-                    break
-            return
-        cache_key = "v2results|" + "|".join(
-            str(value)
-            for value in (product, retailer, department, direction, minimum_percent, view)
-        )
-        results = _views_get(
-            cache_key,
-            lambda: v2_price_results(
+        offset = 0
+        batch = 2000
+        while True:
+            _, page_rows = v2_price_page(
                 db,
                 product=product,
                 retailer=retailer,
@@ -1435,10 +1394,16 @@ def _iter_catalog_csv(
                 direction=direction,
                 minimum_percent=minimum_percent,
                 view=view,
-            ),
-            db,
-        )
-        yield catalog_csv_rows(results, view)
+                limit=batch,
+                offset=offset,
+                with_total=False,
+            )
+            if not page_rows:
+                break
+            yield catalog_csv_rows(page_rows, view)
+            offset += batch
+            if len(page_rows) < batch:
+                break
 
 
 @app.get("/catalog/export.csv", include_in_schema=False)
@@ -1485,42 +1450,31 @@ def catalog_dashboard(
     if view not in {"all", "offers", "changes"}:
         raise HTTPException(400, "view must be all, offers or changes")
     page_size = 100
-    fast_path = view == "all" and department is None and direction == "all" and minimum_percent == 0
-    if fast_path:
-        total_results = v2_count_current_listings(db, product=product, retailer=retailer)
-        total_pages = max(1, (total_results + page_size - 1) // page_size)
-        page = min(max(page, 1), total_pages)
-        rows = v2_current_listings(
-            db,
-            product=product,
-            retailer=retailer,
-            limit=page_size,
-            offset=(page - 1) * page_size,
-        )
-        page_results = [v2_row_result(row) for row in rows]
-    else:
-        cache_key = "v2results|" + "|".join(
-            str(value) for value in (
-                product, retailer, department, direction, minimum_percent, view
-            )
-        )
-        results = _views_get(
-            cache_key,
-            lambda: v2_price_results(
-                db,
-                product=product,
-                retailer=retailer,
-                department=department,
-                direction=direction,
-                minimum_percent=minimum_percent,
-                view=view,
-            ),
-            db,
-        )
-        total_results = len(results)
-        total_pages = max(1, (total_results + page_size - 1) // page_size)
-        page = min(max(page, 1), total_pages)
-        page_results = results[(page - 1) * page_size : page * page_size]
+    # Leitura = uma tabela indexada (read model). Filtro, contagem, ordenação e
+    # paginação acontecem no Postgres; Python formata apenas a página visível.
+    total_results = v2_price_result_count(
+        db,
+        product=product,
+        retailer=retailer,
+        department=department,
+        direction=direction,
+        minimum_percent=minimum_percent,
+        view=view,
+    )
+    total_pages = max(1, (total_results + page_size - 1) // page_size)
+    page = min(max(page, 1), total_pages)
+    _, page_results = v2_price_page(
+        db,
+        product=product,
+        retailer=retailer,
+        department=department,
+        direction=direction,
+        minimum_percent=minimum_percent,
+        view=view,
+        limit=page_size,
+        offset=(page - 1) * page_size,
+        with_total=False,
+    )
     latest_runs = v2_latest_runs(db)
     return render_catalog_dashboard(
         results=page_results,

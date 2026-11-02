@@ -143,6 +143,9 @@ class SourceProductVersion(_BigIntId, Base):
     raw_brand: Mapped[str | None] = mapped_column(String(160))
     raw_gtin: Mapped[str | None] = mapped_column(String(32))
     raw_categories: Mapped[list] = mapped_column(JSONB, default=list)
+    # Derivado uma única vez na criação da versão (regra atual do taxonomy).
+    # A leitura nunca recalcula: o read model de store_listings copia o valor.
+    department: Mapped[str | None] = mapped_column(Text, nullable=True)
     raw_measure: Mapped[str | None] = mapped_column(String(50))
     raw_quantity: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
     raw_unit: Mapped[str | None] = mapped_column(String(30))
@@ -178,6 +181,31 @@ class StoreListing(_BigIntId, Base):
     last_seen_run_id: Mapped[int | None] = mapped_column(
         ForeignKey("collection_runs.id")
     )
+    # ==== read model: tudo derivado na escrita (ingest), nunca na leitura ====
+    department: Mapped[str | None] = mapped_column(Text, nullable=True)
+    product_external_id: Mapped[str | None] = mapped_column(String(120))
+    product_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    product_brand: Mapped[str | None] = mapped_column(String(160))
+    product_gtin: Mapped[str | None] = mapped_column(String(32))
+    product_categories: Mapped[list | None] = mapped_column(JSONB, default=list)
+    retailer_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retailer_slug: Mapped[str | None] = mapped_column(Text, nullable=True)
+    store_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    store_region_bucket: Mapped[str | None] = mapped_column(Text, nullable=True)
+    store_city: Mapped[str | None] = mapped_column(Text, nullable=True)
+    store_neighborhood: Mapped[str | None] = mapped_column(Text, nullable=True)
+    store_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    regular_price_cents: Mapped[int | None] = mapped_column(Integer)
+    effective_price_cents: Mapped[int | None] = mapped_column(Integer)
+    best_conditional_cents: Mapped[int | None] = mapped_column(Integer)
+    price_basis_unit: Mapped[str | None] = mapped_column(String(20))
+    price_terms: Mapped[list | None] = mapped_column(JSONB, default=list)
+    previous_cents: Mapped[int | None] = mapped_column(Integer)
+    change_amount_cents: Mapped[int | None] = mapped_column(Integer)
+    change_percent: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    is_offer: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    offer_kind: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    last_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -187,9 +215,19 @@ class StoreListing(_BigIntId, Base):
     __table_args__ = (UniqueConstraint("target_id", "source_product_id"),)
 
 
-class PricePeriod(_BigIntId, Base):
+class PricePeriod(Base):
+    """Histórico imutável (append-only), particionado por HASH(store_listing_id).
+
+    A chave de partição precisa fazer parte da PK e de todo índice único; por
+    isso a PK é composta ``(id, store_listing_id)`` e a unicidade do período
+    aberto/substituído continua garantida por ``(store_listing_id, version)``.
+    """
+
     __tablename__ = "price_periods"
-    store_listing_id: Mapped[int] = mapped_column(ForeignKey("store_listings.id"))
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    store_listing_id: Mapped[int] = mapped_column(
+        ForeignKey("store_listings.id"), primary_key=True
+    )
     version: Mapped[int] = mapped_column(Integer)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     last_confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

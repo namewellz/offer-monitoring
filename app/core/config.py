@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     catalog_collection_enabled: bool = True
     catalog_collection_cron: str = "0 6,14,22 * * *"
     catalog_v2_enabled: bool = True
+    # Dual-write para as tabelas legadas de catálogo (catalog_products /
+    # catalog_price_observations). Desligado por padrão: o histórico oficial é
+    # ``price_periods`` e o legado fica congelado como arquivo. Só ligue para
+    # rollback de emergência.
+    legacy_catalog_write_enabled: bool = False
     # Canonical normalizer (docs/canonical): nothing in the app reads it unless this is on.
     canonical_enabled: bool = False
     davita_api_token: str | None = None
