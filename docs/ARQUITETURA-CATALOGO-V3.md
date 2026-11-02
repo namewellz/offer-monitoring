@@ -182,6 +182,24 @@ Ordem de grandeza esperada (mesma VM, sem upgrade):
 | Memória por coleta | ~1,1 GB | ~100 MB |
 | Crescimento de dados | 600 mil linhas/dia (legado) | só mudanças reais + 1 linha/listing |
 
+Com os índices de ordenação `NULLS LAST` (migração 0019) as duas últimas linhas
+caem para **5,5 ms** e **5,9 ms**.
+
+Medido em **produção** (VM Oracle, após 0018 + 0019 + tuning de memória):
+
+| Endpoint | Antes | Depois |
+|---|---|---|
+| `/catalog` (HTML, página 1) | ~13 s | **0,5–0,9 s** |
+| `/catalog?view=offers` | ~13 s | **0,4–0,6 s** |
+| `/catalog?view=changes` | ~13 s | **0,9–1,4 s** |
+| `/catalog/v2/prices?limit=100` | ~1,3 s | **31–90 ms** |
+| `/catalog/v2/offers?limit=100` | ~2,1 s | **41–100 ms** |
+| `/catalog/v2/price-changes?limit=100` | ~0,9 s | **34–100 ms** |
+
+O que sobrou nas páginas HTML é o `count(*)` (varredura do índice inteiro,
+~250 ms nesta VM) e o I/O limitado do host — não há mais filtro em Python nem
+leitura de 44 mil linhas.
+
 ---
 
 ## 6. Escala de verdade (o que acontece quando crescer)
