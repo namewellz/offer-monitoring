@@ -330,3 +330,27 @@ Em tabela particionada a chave de partição precisa estar em **toda** restriç�
 única. Como `price_periods` particiona por `store_listing_id`, a PK passou a ser
 `(id, store_listing_id)` e `UNIQUE (store_listing_id, version)` foi preservado.
 Nenhum código usa `db.get(PricePeriod, id)`.
+
+### 10.5 Preço-sentinela de indisponibilidade (0,01 / 999,90)
+
+Varejistas publicam um valor-placeholder quando o item está sem preço no PDV:
+
+| Rede | Valor | Observação |
+|---|---|---|
+| Max Atacadista | R$ 0,01 | a API responde com 1 centavo e estoque > 0 |
+| Assaí | R$ 999,90 | inclusive com `available: true` (a flag não é confiável) |
+| Pague Menos | — | R$ 999,90 ali é **preço real** (vinho Don Melchor) |
+
+Sem tratamento, o sentinela vira um período de preço e, quando o preço
+verdadeiro volta, o histórico registra **+19.800%**. Correção:
+
+- `SourceConfig.sentinel_prices` (por rede, em `app/catalog/v2/registry.py`) +
+  piso global `MIN_VALID_PRICE_CENTS = 5` (nenhum item de supermercado custa
+  menos de R$ 0,05);
+- `_sanitize_prices` no ingest zera `sales_price`/`regular_price` sentinela
+  **antes** de avaliar o período — o período aberto continua intacto, que é o
+  histórico correto (o item apenas ficou indisponível);
+- `python -m app.cli purge-catalog-sentinels` limpa os períodos já gravados,
+  reabre o período anterior e recompõe o read model (idempotente).
+
+A regra é **por rede, nunca global** — foi o que preservou o vinho de R$ 999,90.

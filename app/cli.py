@@ -80,6 +80,7 @@ def main() -> None:
     commands.add_parser("reclassify-catalog")
     commands.add_parser("backfill-v2")
     commands.add_parser("backfill-catalog-read-model")
+    commands.add_parser("purge-catalog-sentinels")
     extract = commands.add_parser("extract")
     extract.add_argument("--flyer", required=True)
     extract.add_argument("--strategy")
@@ -180,6 +181,15 @@ def main() -> None:
         with SessionLocal() as db:
             result = rebuild_all(db)
         print("Catalog read model rebuilt:")
+        for key, value in result.items():
+            print(f"  {key}: {value}")
+        return
+    if args.command == "purge-catalog-sentinels":
+        from app.catalog.v2.rebuild import purge_sentinel_periods
+
+        with SessionLocal() as db:
+            result = purge_sentinel_periods(db)
+        print("Sentinel prices purged:")
         for key, value in result.items():
             print(f"  {key}: {value}")
         return

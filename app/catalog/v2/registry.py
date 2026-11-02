@@ -11,11 +11,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# Abaixo disso nenhum item de supermercado tem preço real: é placeholder de
+# indisponibilidade (ex.: R$ 0,01 do Max Atacadista).
+MIN_VALID_PRICE_CENTS = 5
+
 
 @dataclass(frozen=True)
 class SourceConfig:
     code: str
     provider_type: str
+    # Preços que a API do varejista usa como "sem preço" / fora de estoque.
+    # São POR REDE: R$ 999,90 é sentinela no Assaí, mas é preço real de um vinho
+    # na Pague Menos.
+    sentinel_prices: tuple[str, ...] = ()
+
+    @property
+    def sentinel_cents(self) -> frozenset[int]:
+        return frozenset(int(round(float(value) * 100)) for value in self.sentinel_prices)
 
 
 @dataclass(frozen=True)
@@ -37,10 +49,20 @@ CATALOG_SOURCES: dict[str, SourceConfig] = {
     "atacadao": SourceConfig("atacadao-app", "atacadao-app-api"),
     "savegnago": SourceConfig("savegnago-vtex", "savegnago-vtex-api"),
     "davitta": SourceConfig("davita-mobilesim-api", "davita-mobilesim-api"),
-    "assai": SourceConfig("meu-assai-authenticated-api", "assai-authenticated-api"),
+    "assai": SourceConfig(
+        "meu-assai-authenticated-api",
+        "assai-authenticated-api",
+        # A API devolve 999,9 para produto sem preço/indisponível.
+        sentinel_prices=("999.9",),
+    ),
     "tenda": SourceConfig("tenda-public-api", "tenda-public-api"),
     "sao-vicente": SourceConfig("saovicente-demandware-api", "saovicente-demandware-api"),
-    "max-atacadista": SourceConfig("max-public-api", "max-public-api"),
+    "max-atacadista": SourceConfig(
+        "max-public-api",
+        "max-public-api",
+        # A API devolve 0,01 quando o item está sem preço no PDV.
+        sentinel_prices=("0.01",),
+    ),
     "dalben": SourceConfig("dalben-vipcommerce", "dalben-vipcommerce-api"),
     "spani": SourceConfig("spani-vipcommerce", "spani-vipcommerce-api"),
     "pague-menos": SourceConfig(

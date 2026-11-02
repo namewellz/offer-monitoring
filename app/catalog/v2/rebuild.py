@@ -15,11 +15,19 @@ startup.
 
 from __future__ import annotations
 
-from sqlalchemy import select, text
+from sqlalchemy import delete, or_, select, text, update
 from sqlalchemy.orm import Session
 
 from app.catalog.taxonomy import canonical_department
-from app.db.models_v2 import SourceProductVersion
+from app.catalog.v2.registry import CATALOG_SOURCES, MIN_VALID_PRICE_CENTS
+from app.db.models import Retailer
+from app.db.models_v2 import (
+    CatalogSource,
+    CollectionTarget,
+    PricePeriod,
+    SourceProductVersion,
+    StoreListing,
+)
 
 _PRODUCT_FIELDS_SQL = """
 UPDATE store_listings sl
@@ -213,3 +221,97 @@ def rebuild_all(db: Session) -> dict[str, int]:
     departments = backfill_departments(db)
     listings = rebuild_listings(db)
     return {**departments, **listings}
+
+
+def purge_sentinel_periods(db: Session) -> dict[str, int]:
+    """Remove períodos criados a partir de preço-sentinela.
+
+    Varejistas usam 0,01 (Max Atacadista) ou 999,9 (Assaí) quando o item está
+    sem preço — tratar isso como preço real gera um período falso e uma variação
+    absurda quando o preço verdadeiro volta. Aqui:
+
+    1. apaga os períodos com preço abaixo do piso (`MIN_VALID_PRICE_CENTS`) ou
+       igual ao sentinela configurado da rede;
+    2. se o período apagado era o aberto, reabre o anterior (o item estava só
+       indisponível, o último preço válido continua valendo);
+    3. recomputa o snapshot do read model dos listings afetados.
+
+    É idempotente e restrito: um preço real de R$ 999,90 na Pague Menos (onde
+    não há sentinela configurado) não é tocado.
+    """
+    from app.catalog.v2.ingest import _sync_listing_snapshot
+
+    deleted = 0
+    affected: set[int] = set()
+    for slug, config in CATALOG_SOURCES.items():
+        conditions = [PricePeriod.effective_price_cents < MIN_VALID_PRICE_CENTS]
+        if config.sentinel_cents:
+            conditions.append(
+                PricePeriod.effective_price_cents.in_(sorted(config.sentinel_cents))
+            )
+        rows = db.execute(
+            select(
+                PricePeriod.id,
+                PricePeriod.store_listing_id,
+                PricePeriod.version,
+                PricePeriod.ended_at,
+            )
+            .join(StoreListing, StoreListing.id == PricePeriod.store_listing_id)
+            .join(CollectionTarget, CollectionTarget.id == StoreListing.target_id)
+            .join(CatalogSource, CatalogSource.id == CollectionTarget.source_id)
+            .join(Retailer, Retailer.id == CatalogSource.retailer_id)
+            .where(Retailer.slug == slug, or_(*conditions))
+        ).all()
+        for period_id, listing_id, version, ended_at in rows:
+            db.execute(
+                delete(PricePeriod).where(
+                    PricePeriod.id == period_id,
+                    PricePeriod.store_listing_id == listing_id,
+                )
+            )
+            if ended_at is None:
+                # O sentinela era o período aberto: o anterior volta a vigorar.
+                db.execute(
+                    update(PricePeriod)
+                    .where(
+                        PricePeriod.store_listing_id == listing_id,
+                        PricePeriod.version == version - 1,
+                    )
+                    .values(ended_at=None)
+                )
+            deleted += 1
+            affected.add(listing_id)
+        db.commit()
+
+    rebuilt = 0
+    for listing_id in affected:
+        listing = db.get(StoreListing, listing_id)
+        if listing is None:
+            continue
+        period = db.scalar(
+            select(PricePeriod).where(
+                PricePeriod.store_listing_id == listing_id,
+                PricePeriod.ended_at.is_(None),
+            )
+        )
+        if period is None:
+            listing.effective_price_cents = None
+            listing.regular_price_cents = None
+            listing.best_conditional_cents = None
+            listing.price_terms = []
+            listing.previous_cents = None
+            listing.change_amount_cents = None
+            listing.change_percent = None
+            listing.is_offer = False
+            listing.offer_kind = None
+        else:
+            previous = db.scalar(
+                select(PricePeriod).where(
+                    PricePeriod.store_listing_id == listing_id,
+                    PricePeriod.version == period.version - 1,
+                )
+            )
+            _sync_listing_snapshot(listing, period, previous, changed=True)
+        rebuilt += 1
+    db.commit()
+    return {"periods_deleted": deleted, "listings_rebuilt": rebuilt}

@@ -34,6 +34,7 @@ from app.catalog.v2.read import shelf_previous_cents
 from app.catalog.v2.registry import (
     CATALOG_SOURCES,
     COLLECTOR_VERSION,
+    MIN_VALID_PRICE_CENTS,
     source_config_for,
     target_defaults_for,
 )
@@ -80,6 +81,53 @@ def _effective_price(raw: dict[str, Any]) -> Any:
     except (TypeError, ValueError):
         return None
     return value
+
+
+def _price_cents(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if numeric <= 0:
+        return None
+    return int(round(numeric * 100))
+
+
+def _is_sentinel_price(cents: int, sentinel_cents: frozenset[int]) -> bool:
+    return cents < MIN_VALID_PRICE_CENTS or cents in sentinel_cents
+
+
+def _sanitize_prices(
+    raw: dict[str, Any], sentinel_cents: frozenset[int]
+) -> dict[str, Any]:
+    """Zera preços que são placeholder de indisponibilidade da rede.
+
+    Varejistas publicam valores como 0,01 (Max Atacadista) ou 999,9 (Assaí)
+    quando o item está sem preço no PDV. Tratá-los como preço real cria um
+    período falso e, na volta do preço verdadeiro, uma variação de +19.800%.
+    Sem preço válido o período aberto continua intacto — que é o histórico
+    correto (o item só ficou indisponível).
+    """
+    sales_cents = _price_cents(raw.get("sales_price"))
+    regular_cents = _price_cents(raw.get("regular_price"))
+    sales_invalid = sales_cents is not None and _is_sentinel_price(
+        sales_cents, sentinel_cents
+    )
+    regular_invalid = regular_cents is not None and _is_sentinel_price(
+        regular_cents, sentinel_cents
+    )
+    if not (sales_invalid or regular_invalid):
+        return raw
+    cleaned = dict(raw)
+    if sales_invalid:
+        cleaned["sales_price"] = None
+    if regular_invalid:
+        cleaned["regular_price"] = None
+        cleaned["tier_prices"] = []
+        cleaned["offer_tags"] = []
+    return cleaned
 
 
 def _availability(raw: dict[str, Any]) -> str:
@@ -558,6 +606,7 @@ def ingest_catalog_v2(
     if retailer_slug not in CATALOG_SOURCES:
         return None
 
+    sentinel_cents = CATALOG_SOURCES[retailer_slug].sentinel_cents
     observed_at = _observed_at(catalog)
     source = ensure_source(db, retailer, CATALOG_SOURCES[retailer_slug].provider_type, catalog["source"])
     target_store = ensure_store(db, retailer, store)
@@ -574,6 +623,7 @@ def ingest_catalog_v2(
     periods_created = 0
 
     for raw in products:
+        raw = _sanitize_prices(raw, sentinel_cents)
         product, version, is_new_product, is_new_version = _upsert_source_product(
             db, run, source, raw, observed_at
         )
