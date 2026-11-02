@@ -24,6 +24,19 @@ services:
     image: postgres:17-alpine
     restart: unless-stopped
     shm_size: 1gb
+    # A VM tem 11 GB; o default do Postgres (shared_buffers=128 MB) fazia toda
+    # leitura de índice ir para o disco. O working set do catálogo
+    # (store_listings + price_periods + versions ~ 900 MB) cabe no buffer.
+    command: >
+      postgres
+      -c shared_buffers=2GB
+      -c effective_cache_size=6GB
+      -c work_mem=16MB
+      -c maintenance_work_mem=512MB
+      -c max_wal_size=4GB
+      -c checkpoint_completion_target=0.9
+      -c autovacuum_vacuum_scale_factor=0.05
+      -c autovacuum_analyze_scale_factor=0.02
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-flyer}
       POSTGRES_USER: ${POSTGRES_USER:-flyer}

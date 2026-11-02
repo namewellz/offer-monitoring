@@ -1475,7 +1475,9 @@ def catalog_dashboard(
         offset=(page - 1) * page_size,
         with_total=False,
     )
-    latest_runs = v2_latest_runs(db)
+    # latest_runs muda só a cada coleta: memoriza por geração em vez de refazer
+    # a janela sobre collection_runs em toda requisição (80-700 ms na VM).
+    latest_runs = _views_get("v2latest_runs", lambda: v2_latest_runs(db), db)
     return render_catalog_dashboard(
         results=page_results,
         product=product,
