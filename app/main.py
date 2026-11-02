@@ -1386,7 +1386,7 @@ def catalog_update_dashboard(db: Session = Depends(get_db)):
 
 def _iter_catalog_csv(
     *, product: str | None, retailer: str | None, department: str | None,
-    direction: str, minimum_percent: float, view: str,
+    direction: str, minimum_percent: float, view: str, fresh_hours: int = 0,
 ):
     """Yield the filtered price rows in batches, straight from the read model."""
     from app.db.session import SessionLocal
@@ -1405,6 +1405,7 @@ def _iter_catalog_csv(
                 direction=direction,
                 minimum_percent=minimum_percent,
                 view=view,
+                fresh_hours=fresh_hours or None,
                 limit=batch,
                 offset=offset,
                 with_total=False,
@@ -1425,6 +1426,7 @@ def catalog_export_csv(
     direction: str = "all",
     minimum_percent: float = 0,
     view: str = "all",
+    fresh: int = 0,
 ):
     if view not in {"all", "offers", "changes"}:
         raise HTTPException(400, "view must be all, offers or changes")
@@ -1441,6 +1443,7 @@ def catalog_export_csv(
             direction=direction,
             minimum_percent=minimum_percent,
             view=view,
+            fresh_hours=fresh,
         ),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
@@ -1455,11 +1458,14 @@ def catalog_dashboard(
     direction: str = "all",
     minimum_percent: float = 0,
     view: str = "all",
+    fresh: int = 24,
     page: int = 1,
     db: Session = Depends(get_db),
 ):
     if view not in {"all", "offers", "changes"}:
         raise HTTPException(400, "view must be all, offers or changes")
+    if fresh not in {0, 12, 24, 48, 72, 168}:
+        fresh = 24
     page_size = 100
     # Leitura = uma tabela indexada (read model). Filtro, contagem, ordenação e
     # paginação acontecem no Postgres; Python formata apenas a página visível.
@@ -1471,6 +1477,7 @@ def catalog_dashboard(
         direction=direction,
         minimum_percent=minimum_percent,
         view=view,
+        fresh_hours=fresh or None,
     )
     total_pages = max(1, (total_results + page_size - 1) // page_size)
     page = min(max(page, 1), total_pages)
@@ -1482,6 +1489,7 @@ def catalog_dashboard(
         direction=direction,
         minimum_percent=minimum_percent,
         view=view,
+        fresh_hours=fresh or None,
         limit=page_size,
         offset=(page - 1) * page_size,
         with_total=False,
@@ -1497,6 +1505,7 @@ def catalog_dashboard(
         direction=direction,
         minimum_percent=minimum_percent,
         view=view,
+        fresh_hours=fresh,
         total_results=total_results,
         page=page,
         page_size=page_size,

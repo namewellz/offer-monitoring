@@ -419,6 +419,7 @@ def price_results(
     direction: str = "all",
     minimum_percent: float = 0,
     view: str = "all",
+    fresh_hours: int | None = None,
     limit: int | None = None,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
@@ -432,6 +433,7 @@ def price_results(
         direction=direction,
         minimum_percent=minimum_percent,
         view=view,
+        fresh_hours=fresh_hours,
     )
     if offset:
         query = query.offset(max(offset, 0))
@@ -452,6 +454,7 @@ def price_result_count(
     direction: str = "all",
     minimum_percent: float = 0,
     view: str = "all",
+    fresh_hours: int | None = None,
 ) -> int:
     if direction not in {"all", "up", "down"}:
         raise ValueError("direction must be all, up or down")
@@ -462,6 +465,7 @@ def price_result_count(
         direction=direction,
         minimum_percent=minimum_percent,
         view=view,
+        fresh_hours=fresh_hours,
     )
     query = select(func.count()).select_from(StoreListing).where(*conditions)
     query = apply_listing_store_filter(query, StoreListing)
@@ -479,6 +483,11 @@ def price_result_count(
 # ---------------------------------------------------------------------------
 
 
+def freshness_cutoff(hours: int) -> datetime:
+    """Início da janela de atualidade: preço confirmado a partir daqui."""
+    return datetime.now(timezone.utc) - timedelta(hours=max(int(hours), 1))
+
+
 def _listing_conditions(
     *,
     product: str | None,
@@ -487,6 +496,7 @@ def _listing_conditions(
     direction: str,
     minimum_percent: float,
     view: str,
+    fresh_hours: int | None = None,
 ) -> list[Any]:
     conditions: list[Any] = [
         # Booleanos crus, não ``.is_(True)``: o Postgres não reconhece
@@ -497,6 +507,14 @@ def _listing_conditions(
         # conhecido não aparece na tela (e não tem last_confirmed_at).
         StoreListing.effective_price_cents.is_not(None),
     ]
+    if fresh_hours:
+        # Filtro de atualidade: só preço re-confirmado dentro da janela.
+        conditions.append(
+            StoreListing.last_confirmed_at.is_not(None)
+        )
+        conditions.append(
+            StoreListing.last_confirmed_at >= freshness_cutoff(fresh_hours)
+        )
     if product:
         conditions.append(StoreListing.product_name.ilike(f"%{product}%"))
     if retailer:
@@ -542,6 +560,7 @@ def _listing_query(
     direction: str,
     minimum_percent: float,
     view: str,
+    fresh_hours: int | None = None,
 ):
     """SELECT sobre o read model, já com os filtros de loja do contexto."""
     conditions = _listing_conditions(
@@ -551,6 +570,7 @@ def _listing_query(
         direction=direction,
         minimum_percent=minimum_percent,
         view=view,
+        fresh_hours=fresh_hours,
     )
     query = select(StoreListing).where(*conditions)
     query = apply_listing_store_filter(query, StoreListing)
@@ -635,6 +655,7 @@ def price_page(
     direction: str = "all",
     minimum_percent: float = 0,
     view: str = "all",
+    fresh_hours: int | None = None,
     limit: int = 100,
     offset: int = 0,
     with_total: bool = True,
@@ -649,6 +670,7 @@ def price_page(
         direction=direction,
         minimum_percent=minimum_percent,
         view=view,
+        fresh_hours=fresh_hours,
     )
     total: int | None = None
     if with_total:
@@ -659,6 +681,7 @@ def price_page(
             direction=direction,
             minimum_percent=minimum_percent,
             view=view,
+            fresh_hours=fresh_hours,
         )
         count_query = select(func.count()).select_from(StoreListing).where(*conditions)
         count_query = apply_listing_store_filter(count_query, StoreListing)

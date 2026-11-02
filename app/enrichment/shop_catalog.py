@@ -59,6 +59,18 @@ _STATE_LOCK = threading.Lock()
 Rows = Sequence[tuple[Any, ...]]
 
 
+def _iso(value: Any) -> str | None:
+    """Data da coleta em ISO (o índice é serializado em JSON para o browser)."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    try:
+        return value.isoformat()
+    except AttributeError:
+        return None
+
+
 def _identity_from(canonical: Any, raw: str, fallback: str) -> tuple[str, bool, bool]:
     is_package = (
         canonical.generic in PACKAGE_CATEGORIES or canonical.specific in PACKAGE_CATEGORIES
@@ -112,6 +124,7 @@ def _as_dict_sources(group: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "price": float(price),
             "store": info.get("store") if isinstance(info, dict) else None,
             "sample": info.get("sample") if isinstance(info, dict) else None,
+            "confirmed": _iso(info.get("confirmed")) if isinstance(info, dict) else None,
         }
     return out
 
@@ -188,6 +201,7 @@ def _generic_lines(db: Any, rows: Rows | None = None) -> list[dict[str, Any]]:
                 row[_IDX["raw"]] or "",
                 row[_IDX["brand"]] or None,
                 row[_IDX["raw_categories"]] or [],
+                row[_IDX["confirmed"]],
             )
         )
 
@@ -202,7 +216,7 @@ def _generic_lines(db: Any, rows: Rows | None = None) -> list[dict[str, Any]]:
         )
         per_retailer: dict[tuple[str, str], dict[str, Any]] = {}
         whole = dept in WHOLE_EMBALAGEM_DEPARTMENTS
-        for retailer, store, price, raw, _brand, _categories in listing_list:
+        for retailer, store, price, raw, _brand, _categories, confirmed in listing_list:
             if whole:
                 # convenção: preço da embalagem anunciada (nunca R$/kg ou R$/L)
                 key = (retailer, "embalagem")
@@ -223,6 +237,7 @@ def _generic_lines(db: Any, rows: Rows | None = None) -> list[dict[str, Any]]:
                     "price": per,
                     "store": store,
                     "sample": raw,
+                    "confirmed": confirmed,
                 }
         for (retailer, family), info in per_retailer.items():
             fkey = (dept, _fold(identity), family)
@@ -241,12 +256,13 @@ def _generic_lines(db: Any, rows: Rows | None = None) -> list[dict[str, Any]]:
                 # prefere a identidade determinística (caixa/acentos limpos)
                 displays[fkey] = (identity, deterministic)
             acc = group["sources"].setdefault(
-                retailer, {"price": None, "store": None, "sample": None}
+                retailer, {"price": None, "store": None, "sample": None, "confirmed": None}
             )
             if acc["price"] is None or info["price"] < acc["price"]:
                 acc["price"] = info["price"]
                 acc["store"] = info["store"]
                 acc["sample"] = info["sample"]
+                acc["confirmed"] = info.get("confirmed")
 
     lines = []
     for (dept, _folded, family), group in groups.items():
@@ -271,7 +287,7 @@ def _generic_lines(db: Any, rows: Rows | None = None) -> list[dict[str, Any]]:
 
 
 def _group_produce(
-    entries: list[tuple[int, float, str, str, str]],
+    entries: list[tuple[int, float, str, str, str, Any]],
     canonical: dict[int, str],
 ) -> list[dict[str, Any]]:
     """Group Hortifrúti listings into pickable lines (pure, DB-free).
@@ -284,7 +300,7 @@ def _group_produce(
     be offered both per kg and per unidade.
     """
     groups: dict[tuple[str, str], dict[str, Any]] = {}
-    for pid, price, raw, retailer, store in entries:
+    for pid, price, raw, retailer, store, confirmed in entries:
         prod = normalize_produce(raw)
         name = prod.product if prod is not None else canonical.get(pid)
         if not name:
@@ -300,11 +316,14 @@ def _group_produce(
         gkey = (name, unit.family)
         group = groups.setdefault(gkey, {"products": set(), "sources": {}})
         group["products"].add(pid)
-        acc = group["sources"].setdefault(retailer, {"price": None, "store": None, "sample": None})
+        acc = group["sources"].setdefault(
+            retailer, {"price": None, "store": None, "sample": None, "confirmed": None}
+        )
         if acc["price"] is None or per < acc["price"]:
             acc["price"] = per
             acc["store"] = store
             acc["sample"] = raw
+            acc["confirmed"] = confirmed
 
     order = {"mass": 0, "vol": 1, "units": 2, "package": 3}
     lines = []
@@ -360,7 +379,7 @@ def _produce_lines(db: Any, rows: Rows | None = None) -> list[dict[str, Any]]:
     if not pids:
         return []
 
-    entries: list[tuple[int, float, str, str, str]] = []
+    entries: list[tuple[int, float, str, str, str, Any]] = []
     for row in (rows if rows is not None else current_listings(db, release=True)):
         pid = row[_IDX["pid"]]
         if pid not in pids:
@@ -377,6 +396,7 @@ def _produce_lines(db: Any, rows: Rows | None = None) -> list[dict[str, Any]]:
                 row[_IDX["raw"]] or "",
                 row[_IDX["retailer"]],
                 row[_IDX["store"]] or "",
+                row[_IDX["confirmed"]],
             )
         )
     return _group_produce(entries, pid_canon)
@@ -403,6 +423,7 @@ def _build_search_index(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]
                     "price": float(price),
                     "store": info.get("store") if isinstance(info, dict) else None,
                     "sample": info.get("sample") if isinstance(info, dict) else None,
+                    "confirmed": _iso(info.get("confirmed")) if isinstance(info, dict) else None,
                 }
             )
         if not sources:

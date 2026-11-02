@@ -240,7 +240,8 @@ def render_builder(
         + "<section class='hero'><div><span class='eyebrow'>Lista de compras</span>"
         f"<h1>{escape(name)}</h1>"
         "<p>Fonte padrão: <b>mais barata</b>. Troque a origem item a item e ajuste a "
-        "quantidade direto na linha.</p></div>"
+        "quantidade direto na linha. Só entram preços confirmados na coleta das "
+        "últimas 48 horas — a data de cada coleta aparece embaixo do item.</p></div>"
         "<a class='page-button' href='/shopping-lists'>← listas</a></section>"
         + viewseg
         + table
@@ -331,6 +332,24 @@ def _script(
   const fmt = v => 'R$ ' + Number(v).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
   const key = (d,c,f) => d + '|' + c + '|' + f;
   const label = s => LABEL[s] || s;
+  // Data/hora da coleta que confirmou o preço (ISO -> "dd/mm às HH:MM").
+  const fmtWhen = iso => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    const p = n => String(n).padStart(2, '0');
+    return p(d.getDate()) + '/' + p(d.getMonth() + 1) + ' às ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  };
+  // Idade do preço em horas: verde quando < 12h, cinza até 48h, alerta depois.
+  const fmtAge = iso => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    const h = (Date.now() - d.getTime()) / 3600000;
+    if (h < 1) return 'agora';
+    if (h < 24) return 'há ' + Math.floor(h) + 'h';
+    return 'há ' + Math.floor(h / 24) + 'd';
+  };
   const UT = {'kg':'kg','L':'litro','un':'unidade','pacote':'pacote','embalagem':'embalagem'};
   const lineTitle = (d,lab,u) => d === 'Açougue' ? (lab + ' · ' + u) : ('por ' + (UT[u] || u));
   const TP = {'kg':'Kilo','L':'Litro','un':'Unidade','pacote':'Pacote','caixa':'Caixa','embalagem':'Embalagem'};
@@ -481,11 +500,14 @@ def _script(
     if (sources.length && !sources.some(s => s.slug === chosen)) chosen = sources[0].slug;
     const opts = sources.map(s =>
       '<option value="' + esc(s.slug) + '"' + (s.slug === chosen ? ' selected' : '') + '>' +
-      esc(label(s.slug)) + ' — ' + fmt(s.price) + '/' + unit + '</option>'
+      esc(label(s.slug)) + ' — ' + fmt(s.price) + '/' + unit +
+      (s.store ? ' · ' + esc(s.store) : '') +
+      (s.confirmed ? ' · ' + esc(fmtAge(s.confirmed)) : '') + '</option>'
     ).join('') || '<option value="">—</option>';
     const base = sources.find(s => s.slug === chosen) || sources[0];
     const detParts = [];
     if (base && base.store) detParts.push(esc(base.store));
+    if (base && base.confirmed) detParts.push('coletado ' + esc(fmtWhen(base.confirmed)) + ' (' + esc(fmtAge(base.confirmed)) + ')');
     if (base && base.sample) detParts.push(esc(base.sample));
     const qty = parseFloat(it.qty) || 1;
     let unitHtml = "<span class='uni'>" + esc(lineTitle(dept, lab, unit)) + "</span>";
@@ -513,6 +535,19 @@ def _script(
       "<td><button class='del rm' type='button'>×</button></td>";
     return tr;
   }
+  // Redesenha a linha de detalhe (loja, coleta, produto do varejista) da origem escolhida.
+  function refreshDetail(tr) {
+    const info = ROWS[key(tr.querySelector('input.deptv').value, tr.querySelector('input.cat').value, tr.querySelector('input.formv').value)];
+    const sources = info ? info.sources : [];
+    const chosen = tr.querySelector('select.src').value;
+    const base = sources.find(s => s.slug === chosen) || sources[0];
+    const parts = [];
+    if (base && base.store) parts.push(esc(base.store));
+    if (base && base.confirmed) parts.push('coletado ' + esc(fmtWhen(base.confirmed)) + ' (' + esc(fmtAge(base.confirmed)) + ')');
+    if (base && base.sample) parts.push(esc(base.sample));
+    const span = tr.querySelector('.detail');
+    if (span) span.innerHTML = parts.join(' · ');
+  }
   function bindRow(tr) {
     const id = tr.dataset.id;
     const ut = tr.querySelector('select.utype');
@@ -536,7 +571,12 @@ def _script(
         compute();
       } catch (e) { this.disabled = false; }
     });
-    tr.querySelector('select.src').addEventListener('change', function(){ persist(id, {retailer: this.value}); if (marketView) renderGrouped(); compute(); });
+    tr.querySelector('select.src').addEventListener('change', function(){
+      persist(id, {retailer: this.value});
+      refreshDetail(tr);
+      if (marketView) renderGrouped();
+      compute();
+    });
     tr.querySelector('input.qty').addEventListener('input', function(){
       const s = (this.value || '').trim();
       if (s === '') return;                      // permite apagar para digitar

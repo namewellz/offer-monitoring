@@ -129,6 +129,7 @@ def render_catalog_dashboard(
     page: int,
     page_size: int,
     latest_runs: list[dict[str, Any]],
+    fresh_hours: int = 0,
 ) -> str:
     rows = []
     for result in results:
@@ -209,6 +210,15 @@ def render_catalog_dashboard(
         "offers": "oferta(s) vigente(s) na coleta mais recente de cada loja",
         "changes": "alteração(ões) na coleta mais recente de cada loja",
     }[view]
+    fresh_label = {
+        0: "qualquer data de coleta",
+        12: "últimas 12 horas",
+        24: "últimas 24 horas",
+        48: "últimas 48 horas",
+        72: "últimos 3 dias",
+        168: "últimos 7 dias",
+    }.get(fresh_hours, f"últimas {fresh_hours} horas")
+    result_description = f"{result_description} · confirmados nas {fresh_label}"
     previous_heading = "Preço de" if view == "offers" else "Anterior"
     variation_heading = "Desconto" if view == "offers" else "Variação"
     total_pages = max(1, (total_results + page_size - 1) // page_size)
@@ -226,6 +236,7 @@ def render_catalog_dashboard(
             "direction": direction,
             "minimum_percent": f"{minimum_percent:g}",
             "view": view,
+            "fresh": fresh_hours,
             "page": target,
         }
         return "/catalog?" + escape(urlencode(parameters), quote=True)
@@ -237,6 +248,7 @@ def render_catalog_dashboard(
         "direction": direction,
         "minimum_percent": f"{minimum_percent:g}",
         "view": view,
+        "fresh": fresh_hours,
     }
     export_url = "/catalog/export.csv?" + escape(urlencode(export_parameters), quote=True)
 
@@ -304,6 +316,13 @@ def render_catalog_dashboard(
 <label><span>Movimento</span><select name="direction"><option value="all">Todos</option>
 <option value="up" {"selected" if direction == "up" else ""}>Aumentos</option>
 <option value="down" {"selected" if direction == "down" else ""}>Reduções</option></select></label>
+<label><span>Atualidade</span><select name="fresh">
+<option value="12" {"selected" if fresh_hours == 12 else ""}>Últimas 12 horas</option>
+<option value="24" {"selected" if fresh_hours == 24 else ""}>Últimas 24 horas</option>
+<option value="48" {"selected" if fresh_hours == 48 else ""}>Últimas 48 horas</option>
+<option value="72" {"selected" if fresh_hours == 72 else ""}>Últimos 3 dias</option>
+<option value="168" {"selected" if fresh_hours == 168 else ""}>Últimos 7 dias</option>
+<option value="0" {"selected" if not fresh_hours else ""}>Qualquer data</option></select></label>
 <label><span>Variação mínima</span><div class="percent-input"><input name="minimum_percent" type="number" min="0" step="0.1" value="{minimum_percent:g}"><b>%</b></div></label>
 <button class="primary" type="submit">Aplicar filtros</button></div></form>
 <section class="results-card"><div class="results-heading"><div><h2>Resultados</h2>

@@ -1,8 +1,12 @@
+from datetime import UTC, datetime
+
 from app.enrichment.shop_catalog import _group_produce
+
+CONFIRMED = datetime(2026, 11, 2, 12, 0, tzinfo=UTC)
 
 
 def _e(pid, price, raw, retailer="atacadao", store="Loja A"):
-    return (pid, price, raw, retailer, store)
+    return (pid, price, raw, retailer, store, CONFIRMED)
 
 
 def test_fuji_presentations_grouped_per_unit_family():
