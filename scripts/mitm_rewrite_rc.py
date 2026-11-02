@@ -1,10 +1,19 @@
 """mitmproxy addon: rewrite the Remote Config response so the app talks to us.
 
-The app builds its Keycloak token URL from `in_store_offers_keycloak_login_url`
-(fetched from Firebase Remote Config over the *native* HTTP stack, which does
-honour the system proxy). Dart HTTP ignores the proxy, so instead of trying to
-intercept TLS from Flutter we simply point that config value at a plain-HTTP
-logger running on this machine - the token request then arrives in clear text.
+The app builds its Keycloak/in-store-offers URLs from Firebase Remote Config
+values (`in_store_offers_*`), fetched over the *native* HTTP stack, which does
+honour the system proxy. Dart HTTP ignores the proxy, so instead of trying to
+intercept TLS from Flutter we simply point every absolute HTTP(S) URL in that
+config at a plain-HTTP logger running on this machine - the requests then
+arrive in clear text.
+
+History:
+  * 13.429.1 redirected `*keycloak_login_url`, `*api_url` and `*base_api_url`
+    and the app minted its own Keycloak token (client_secret in the snapshot).
+  * 13.429.2 dropped `/infosec/.../token` and `client_credentials` from the
+    snapshot and added `in_store_offers_secure_proxy_function`; auth moved
+    server-side. The rewrite is therefore value-based ("any absolute URL"),
+    not key-name-based, so new endpoint keys are covered automatically.
 """
 from __future__ import annotations
 
@@ -15,11 +24,16 @@ from mitmproxy import http
 
 LOGGER_URL = "http://192.168.3.7:9999"
 
-# only redirect what we need; touching everything would break the rest of the app
-# The token endpoint is built from the API base (the app appends
-# "/infosec/auth/v1/protocol/openid-connect/token"), so redirect those too.
-TARGET_SUBSTRINGS = ("keycloak_login_url", "api_url", "base_api_url")
 PREFIXES = ("in_store_offers", "hml_in_store_offers")
+# Only the keys that carry the API transport. Rewriting "everything that looks
+# like a URL" breaks unrelated flows (flyer share links, VTEX sign-in redirects).
+TARGET_KEY_TOKENS = (
+    "api_url",
+    "keycloak_login_url",
+    "proxy_function",
+    "edge_function",
+    "gateway",
+)
 LOG = r"C:\Android\capture\rc_rewrite.log"
 
 
@@ -48,9 +62,15 @@ def response(flow: http.HTTPFlow) -> None:
     for key in list(entries):
         if not key.startswith(PREFIXES):
             continue
-        if any(token in key for token in TARGET_SUBSTRINGS):
-            changed.append(f"{key}: {entries[key]} -> {LOGGER_URL}")
-            entries[key] = LOGGER_URL
+        if not any(token in key for token in TARGET_KEY_TOKENS):
+            continue
+        value = entries[key]
+        if not isinstance(value, str) or not value.startswith(("http://", "https://")):
+            # e.g. `in_store_offers_secure_proxy_function` is a *name*, not a URL:
+            # nothing to redirect here (that is why app >= 13.429.2 escaped us).
+            continue
+        changed.append(f"{key}: {value} -> {LOGGER_URL}")
+        entries[key] = LOGGER_URL
     if not changed:
         return
 

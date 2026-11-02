@@ -10,6 +10,8 @@ from __future__ import annotations
 import asyncio
 import json
 
+import pytest
+
 from app.catalog.atacadao import _price, parse_app_products
 
 
@@ -117,6 +119,7 @@ def test_collect_many_orders_catalogs_by_observation_time(monkeypatch) -> None:
     from app.catalog import atacadao
 
     client = atacadao.AtacadaoCatalogClient()
+    client.api_key = "test-key"
     stamps = iter(
         [
             "2026-10-14T00:20:00+00:00",
@@ -131,11 +134,7 @@ def test_collect_many_orders_catalogs_by_observation_time(monkeypatch) -> None:
         payload["products"] = [{"id": str(store["filial"]), "name": "x"}]
         return payload
 
-    async def fake_authenticate():
-        return "token"
-
     monkeypatch.setattr(client, "_collect_store", fake_collect_store)
-    monkeypatch.setattr(client, "authenticate", fake_authenticate)
 
     # filiais da allowlist de Campinas: collect_many recusa loja fora dela
     stores = [
@@ -147,6 +146,20 @@ def test_collect_many_orders_catalogs_by_observation_time(monkeypatch) -> None:
         "2026-10-14T00:20:00+00:00",
         "2026-10-14T00:30:00+00:00",
     ]
+
+
+def test_auth_headers_require_the_edge_function_key(monkeypatch) -> None:
+    """The collector talks to the edge function with `x-api-key` (app >= 13.429.2)."""
+    from app.catalog import atacadao
+
+    monkeypatch.setattr(atacadao, "API_KEY", "")
+    client = atacadao.AtacadaoCatalogClient()
+    client.api_key = ""
+    with pytest.raises(atacadao.AtacadaoCredentialsMissing):
+        client._auth_headers()
+
+    client.api_key = "abc123"
+    assert client._auth_headers() == {"x-api-key": "abc123", "apikey": "abc123"}
 
 
 def test_catalog_payload_declares_the_app_channel() -> None:

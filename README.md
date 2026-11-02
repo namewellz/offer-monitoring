@@ -87,10 +87,11 @@ loja (`pageSize` maximo 50) e persiste cada SKU com EAN, preco de referencia (`p
 oferta do app (`finalPrice`) e preco com oferta + Cartao Atacadao (`finalCardPrice`). As faixas
 condicionais viram `tier_prices` com `condition="app"`.
 
-As credenciais e o processo de engenharia reversa estao em
-`docs/REVERSE-ENGINEERING-APP-API.md`; os segredos vem de `ATACADAO_APP_CLIENT_ID`,
-`ATACADAO_APP_CLIENT_SECRET`, `ATACADAO_APP_USERNAME` e `ATACADAO_APP_PASSWORD` (com os valores
-observados no app como fallback). A coleta agendada usa as 10 lojas de Campinas.
+A API e a engenharia reversa estao em `docs/REVERSE-ENGINEERING-APP-API.md` (secao 14 cobre a
+rotacao de credenciais de Nov/2026). Desde o app 13.429.2 a autenticacao e server-side: o coletor
+fala com a edge function `ATACADAO_APP_BASE_URL` enviando o header `x-api-key` com
+`ATACADAO_APP_API_KEY` - nao existe mais token nem `client_secret` no cliente. A coleta agendada usa
+as 10 lojas de Campinas.
 
 O catalogo do Spani tambem e multi-loja (plataforma VIPCommerce, org 67):
 

@@ -28,6 +28,7 @@ está em `docs/REVERSE-ENGINEERING-APP-API.md` — use-o como referência concre
 | App é arm64-only e você está em Windows x86 | Passo 2: BlueStacks Pie64 (tradução ARM64). |
 | Rota desconhecida | Não chute: instrumente a captura e **navegue** até a tela. Passo 6. |
 | Segredo não aparece em `strings` | Ele vem por config remota (Firebase RC, API de bootstrap). Passo 4. |
+| O app **perdeu** o segredo numa atualização | Não é rotação: a auth virou server-side. Procure chave de config `*_proxy_function`/`*_edge_function` em `strings` + RC (passo 11). |
 
 ## Procedimento
 
@@ -92,6 +93,26 @@ Encarte/folheto oficial, site, ou outro canal. Sem número de validação, o tra
 Memória do repo (`/memories/repo/<app>-app-api-and-flyers.md`) + `docs/` + só o genérico volta
 para esta skill.
 
+### 11. Diff de versão: a credencial sumiu do binário?
+Quando um app que funcionava passa a devolver `invalid_grant`/`Account disabled` (ou para de
+autenticar), **primeiro descarte rotação** e compare os snapshots das duas versões:
+
+```powershell
+python scripts\dart_strings.py dump libapp.so --out strings_<ver>.txt   # Flutter
+python scripts\dart_strings.py grep strings_<ver>.txt "openid-connect" "client_credentials" "client_secret" "proxy_function"
+```
+
+- Se `client_secret`/senha **desapareceram**, o app não guarda mais segredo: a chamada agora passa
+  por um backend do fornecedor. Procure chaves de config novas no snapshot (`*_proxy_function`,
+  `*_edge_function`, `*_gateway`) — a **docstring** do parâmetro em português costuma explicar o
+  contrato ("…que guarda no servidor as credenciais da API").
+- Ache o **nome** do componente entre os identificadores kebab-case (`^[a-z0-9]+(-[a-z0-9]+)+$`) e a
+  **base/host** no Remote Config (`scripts/fetch_remote_config.py --version <nova>`).
+- Teste `<base>/<função><path-antigo>` com o header da chave: `404 Route not found.` = path errado;
+  `401 Missing API key.` = header; `429` = rate limit (baixe concorrência e faça backoff).
+- Não perca tempo com captura de tráfego nesse cenário: sem segredo no binário não há o que
+  interceptar, e o Dart continua ignorando o proxy do sistema.
+
 ## Regras de ouro
 
 - **Rota não se adivinha.** Se não viu no tráfego, não existe.
@@ -100,6 +121,7 @@ para esta skill.
   total geral; diferença 0 = você pegou o catálogo inteiro.
 - **Patch por padrão, nunca por nome de arquivo.** Atualização de app muda smali; string-chave
   costuma sobreviver.
+- **Segredo que sumiu do binário = auth server-side.** Compare snapshots antes de assumir rotação.
 - **Segredo só em env/secret manager** no código de produção.
 
 ## Referências

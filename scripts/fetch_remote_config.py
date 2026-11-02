@@ -1,4 +1,5 @@
 """Fetch Firebase Remote Config values for the Atacadão app via the public FIS + RC REST APIs."""
+import argparse
 import os
 import sys
 import json
@@ -18,7 +19,8 @@ def _require_env(name: str) -> str:
 API_KEY = _require_env("ATACADAO_FIREBASE_API_KEY")
 PACKAGE = "br.com.atacadao.b2c.app"
 CERT_SHA1 = "97B1257A29CBA1049C4B1F2D4DE3DBE5B1262040"  # uppercase, no colons
-APP_VERSION = "13.429.1"
+APP_VERSION = "13.429.2"
+OUT = r"C:\Android\capture\remote_config.json"
 
 
 def _fid() -> str:
@@ -36,8 +38,19 @@ def _post(url, body, headers):
 
 
 def main():
+    global APP_VERSION, OUT
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--version", default=APP_VERSION, help="app_version sent to RC (targeting)")
+    ap.add_argument("--out", default=OUT, help="where to write the RC JSON")
+    ap.add_argument("--match", default="in_store_offers",
+                    help="substring filter for the keys printed (empty prints all)")
+    args = ap.parse_args()
+    APP_VERSION = args.version
+    OUT = args.out
+
     fid = _fid()
     print("fid:", fid)
+    print("app_version:", APP_VERSION)
 
     status, result = _post(
         f"https://firebaseinstallations.googleapis.com/v1/projects/{PROJECT}/installations",
@@ -84,11 +97,14 @@ def main():
     if isinstance(result2, dict):
         entries = result2.get("entries", {})
         print(f"entries: {len(entries)}")
-        with open(r"C:\Android\capture\remote_config.json", "w", encoding="utf-8") as fh:
+        with open(OUT, "w", encoding="utf-8") as fh:
             json.dump(result2, fh, ensure_ascii=False, indent=2)
+        print(f"saved -> {OUT}")
+        needle = args.match.lower()
         for key in sorted(entries):
-            if any(t in key.lower() for t in ("offer", "mercaf", "zanthus", "propz", "api", "store", "seller", "region")):
-                print(f"  {key} = {str(entries[key])[:200]}")
+            if needle and needle not in key.lower():
+                continue
+            print(f"  {key} = {str(entries[key])[:400]}")
     else:
         print(str(result2)[:1000])
 

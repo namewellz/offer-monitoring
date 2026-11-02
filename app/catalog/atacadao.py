@@ -17,23 +17,34 @@ store**, the shelf price and the two app-only price tiers:
 ``finalCardPrice``  price with the in-app offer **plus** the Atacadão card
 ==================  =========================================================
 
-Credentials, routes and the whole reverse-engineering process are documented in
-``docs/REVERSE-ENGINEERING-APP-API.md``; a dependency-free reference client for
-the same API lives in ``scripts/atacadao_app_api.py``.
+Authentication moved server-side (app 13.429.2, Nov/2026)
+-------------------------------------------------------
+Until 13.429.1 the app minted its own Keycloak token (``password`` grant with a
+``client_secret`` baked into the Dart snapshot) and called
+``freyr.portal.atacadao.com.br`` directly. In 13.429.2 the snapshot no longer
+contains ``/infosec/.../token`` nor ``client_credentials``; instead the Remote
+Config key ``in_store_offers_secure_proxy_function`` names a **Supabase edge
+function** (``<kobe_middleware_base_url>/atacadao-in-store-offers``) that keeps
+the Keycloak service credentials on the server and proxies the very same
+``/mobile/ofertas-backoffice/v1/...`` paths.
 
-Secrets come from the environment so deployments never carry them in source:
+So this collector now needs no Keycloak credential at all - just the edge
+function URL and its API key. Routes and payloads are unchanged.
 
-    ATACADAO_APP_BASE_URL, ATACADAO_APP_CLIENT_ID, ATACADAO_APP_CLIENT_SECRET,
-    ATACADAO_APP_USERNAME, ATACADAO_APP_PASSWORD
+Configuration comes from the environment so deployments never carry secrets in
+source:
 
-There are no defaults: if any credential is missing, the first token request
-raises ``AtacadaoCredentialsMissing`` naming the missing variables.
+    ATACADAO_APP_BASE_URL   (default: the prod edge function)
+    ATACADAO_APP_API_KEY    (sent as ``x-api-key``; no default)
+
+If the key is missing the first request raises
+``AtacadaoCredentialsMissing`` naming the missing variable.
 """
 from __future__ import annotations
 
 import asyncio
 import os
-import time
+import random
 from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any, Iterable
@@ -45,42 +56,43 @@ from app.catalog.resilience import collection_issue, collection_metadata, requir
 from app.catalog.taxonomy import canonical_department
 
 BASE_URL = os.environ.get(
-    "ATACADAO_APP_BASE_URL", "https://freyr.portal.atacadao.com.br"
+    "ATACADAO_APP_BASE_URL",
+    "https://txgwdepbtdvfnubmtewb.supabase.co/functions/v1/atacadao-in-store-offers",
 ).rstrip("/")
-TOKEN_PATH = "/infosec/auth/v1/protocol/openid-connect/token"
 BACKOFFICE = "/mobile/ofertas-backoffice/v1"
 
-CLIENT_ID = os.environ.get("ATACADAO_APP_CLIENT_ID", "").strip()
-CLIENT_SECRET = os.environ.get("ATACADAO_APP_CLIENT_SECRET", "").strip()
-USERNAME = os.environ.get("ATACADAO_APP_USERNAME", "").strip()
-PASSWORD = os.environ.get("ATACADAO_APP_PASSWORD", "").strip()
+API_KEY = os.environ.get("ATACADAO_APP_API_KEY", "").strip()
 
-_REQUIRED_ENV = (
-    "ATACADAO_APP_CLIENT_ID",
-    "ATACADAO_APP_CLIENT_SECRET",
-    "ATACADAO_APP_USERNAME",
-    "ATACADAO_APP_PASSWORD",
-)
+_REQUIRED_ENV = ("ATACADAO_APP_API_KEY",)
 
 
 class AtacadaoCredentialsMissing(RuntimeError):
-    """Raised when the Atacadao app credentials are not provided via env."""
+    """Raised when the Atacadao app edge-function key is not provided via env."""
 
 
-def _check_credentials() -> None:
-    missing = [
-        name
-        for name, value in zip(
-            _REQUIRED_ENV, (CLIENT_ID, CLIENT_SECRET, USERNAME, PASSWORD)
-        )
-        if not value
-    ]
-    if missing:
+def _check_credentials(key: str | None = None) -> str:
+    """Return the edge-function key, raising when it was not configured."""
+    value = (key if key is not None else API_KEY).strip()
+    if not value:
         raise AtacadaoCredentialsMissing(
             "Atacadao app credentials missing from environment: "
-            + ", ".join(missing)
+            + ", ".join(_REQUIRED_ENV)
             + " (set them in .env.production on the host; see .env.production.example)"
         )
+    return value
+
+
+def _retry_delay(attempt: int, response: httpx.Response | None = None) -> float:
+    """Backoff for a retried request, honouring ``Retry-After`` when present."""
+    if response is not None:
+        retry_after = response.headers.get("Retry-After")
+        if retry_after:
+            try:
+                return min(60.0, max(0.5, float(retry_after)))
+            except ValueError:
+                pass
+    return min(30.0, 1.5 * (2**attempt)) + random.uniform(0, 0.5)
+
 
 # The app's own User-Agent; the gateway is friendlier to it than to a bare client.
 APP_UA = "Dart/3.10 (dart:io)"
@@ -88,8 +100,11 @@ APP_UA = "Dart/3.10 (dart:io)"
 # `pageSize` above 50 is rejected with
 # {"status":400,"message":"pageSize deve ser no máximo 50"}.
 PAGE_SIZE = 50
-MAX_CONCURRENCY = 6
-TOKEN_SAFETY_MARGIN = 120  # seconds; renew before the 3600 s token actually expires
+# The edge function rate-limits bursts (HTTP 429 "Too many requests"); a full
+# store sweep is ~200 requests, so keep the parallelism modest and retry with
+# backoff instead of losing a department.
+MAX_CONCURRENCY = 4
+MAX_ATTEMPTS = 6
 
 # Atacadão branches around Campinas (RMC). Every entry is a physical store and
 # the `filial` value is the store number used by the app. The list includes the
@@ -358,9 +373,7 @@ class AtacadaoCatalogClient:
         self.concurrency = max(1, min(concurrency, MAX_CONCURRENCY))
         self.base_url = base_url.rstrip("/")
         self.page_size = min(page_size, PAGE_SIZE)
-        self._token: str | None = None
-        self._token_expires_at = 0.0
-        self._token_lock = asyncio.Lock()
+        self.api_key = API_KEY
 
     # ------------------------------------------------------------------ auth
     def _make_client(self) -> httpx.AsyncClient:
@@ -374,60 +387,36 @@ class AtacadaoCatalogClient:
             headers={"Accept": "application/json", "User-Agent": APP_UA},
         )
 
-    async def authenticate(self) -> str:
-        """Fetch (or reuse) a Keycloak access token for the app's service user."""
-        async with self._token_lock:
-            if self._token and time.time() < self._token_expires_at:
-                return self._token
-            _check_credentials()
-            client = self.client or self._make_client()
-            try:
-                response = await client.post(
-                    f"{self.base_url}{TOKEN_PATH}",
-                    data={
-                        "grant_type": "password",
-                        "username": USERNAME,
-                        "password": PASSWORD,
-                        "client_id": CLIENT_ID,
-                        "client_secret": CLIENT_SECRET,
-                    },
-                    headers={"Content-Type": "application/x-www-form-urlencoded"},
-                )
-            finally:
-                if self.client is None:
-                    await client.aclose()
-            if response.status_code != 200:
-                raise AtacadaoAppError(response.status_code, response.text)
-            payload = response.json()
-            self._token = payload["access_token"]
-            expires_in = int(payload.get("expires_in") or 3600)
-            self._token_expires_at = time.time() + max(60, expires_in - TOKEN_SAFETY_MARGIN)
-            return self._token
+    def _auth_headers(self) -> dict[str, str]:
+        """Headers for the edge function (the Keycloak exchange happens there)."""
+        key = _check_credentials(self.api_key or API_KEY)
+        return {"x-api-key": key, "apikey": key}
 
     async def _get(
         self, client: httpx.AsyncClient, path: str, params: dict[str, Any]
     ) -> dict[str, Any]:
-        token = await self.authenticate()
         url = f"{self.base_url}{path}"
-        for attempt in range(4):
+        headers = self._auth_headers()
+        last: Exception | None = None
+        for attempt in range(MAX_ATTEMPTS):
             try:
-                response = await client.get(
-                    url, params=params, headers={"Authorization": f"Bearer {token}"}
-                )
-            except (httpx.HTTPError, httpx.TimeoutException):
-                if attempt == 3:
-                    raise
-                await asyncio.sleep(0.5 * (2**attempt))
+                response = await client.get(url, params=params, headers=headers)
+            except (httpx.HTTPError, httpx.TimeoutException) as exc:
+                last = exc
+                await asyncio.sleep(_retry_delay(attempt))
                 continue
-            if response.status_code == 401 and attempt == 0:
-                # Token expired or revoked: force a new one and retry once.
-                self._token = None
-                self._token_expires_at = 0.0
-                token = await self.authenticate()
+            if response.status_code == 200:
+                return response.json()
+            # 429 = edge-function rate limit; 5xx = transient upstream (freyr).
+            # Both are worth retrying with backoff - dropping the page would
+            # silently lose a department from the catalog.
+            if response.status_code == 429 or response.status_code >= 500:
+                last = AtacadaoAppError(response.status_code, response.text)
+                await asyncio.sleep(_retry_delay(attempt, response))
                 continue
-            if response.status_code != 200:
-                raise AtacadaoAppError(response.status_code, response.text)
-            return response.json()
+            raise AtacadaoAppError(response.status_code, response.text)
+        if last is not None:
+            raise last
         raise RuntimeError("unreachable")
 
     async def _with_client(self, operation):
@@ -622,7 +611,7 @@ class AtacadaoCatalogClient:
         owns_client = self.client is None
         client = self.client or self._make_client()
         try:
-            await self.authenticate()
+            self._auth_headers()
             batch_size = max(1, store_concurrency)
             catalogs: list[dict[str, Any]] = []
             for position in range(0, len(stores), batch_size):

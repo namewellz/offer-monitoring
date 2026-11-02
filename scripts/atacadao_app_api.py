@@ -1,16 +1,26 @@
-"""Client for the 'Meu Atacadao' app in-store offers API (freyr/Carrefour).
+"""Client for the 'Meu Atacadao' app in-store offers API.
 
-Credentials and routes were recovered from the real app (see
-/memories/repo/atacadao-app-api-and-flyers.md):
+History of the transport (see docs/REVERSE-ENGINEERING-APP-API.md):
 
-    POST {base}/infosec/auth/v1/protocol/openid-connect/token
-        grant_type=password & client_id=OfertaMobile-TokenAuth
-        username=kcc-ofertas-externo & password=... & client_secret=...
+* app <= 13.429.1 - the app minted its own Keycloak token and called
+  ``https://freyr.portal.atacadao.com.br`` directly::
 
-    GET  {base}/mobile/ofertas-backoffice/v1/...   (Authorization: Bearer <jwt>)
-        home/banners | home/categorias | offer/status
-        busca-loja-via-cep/v2 | busca-loja-via-cidade-nome/v2 | busca-loja-via-geolocation/v2
-        vitrine/mobile/v2 | vitrine-details/mobile/v2
+      POST /infosec/auth/v1/protocol/openid-connect/token
+           grant_type=password & client_id=OfertaMobile-TokenAuth
+           username=kcc-ofertas-externo & password=... & client_secret=...
+      GET  /mobile/ofertas-backoffice/v1/...   (Authorization: Bearer <jwt>)
+
+* app >= 13.429.2 (Nov/2026) - the credential is gone from the APK; the Remote
+  Config key ``in_store_offers_secure_proxy_function`` names a Supabase edge
+  function that holds the Keycloak service account and proxies the *same*
+  paths. A collector only needs that function URL plus its API key::
+
+      GET {edge}/mobile/ofertas-backoffice/v1/...   (x-api-key: <key>)
+
+Routes (unchanged)::
+    home/banners | home/categorias | offer/status | produto/busca
+    busca-loja-via-cep/v2 | busca-loja-via-cidade-nome/v2 | busca-loja-via-geolocation/v2
+    vitrine/mobile/v2 | vitrine-details/mobile/v2
 
 Every store-scoped route takes `filialId` and `idFilial` (the store number).
 """
@@ -23,11 +33,14 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-BASE = "https://freyr.portal.atacadao.com.br"
+# Prod edge function (Remote Config: kobe_middleware_base_url + _secure_proxy_function)
+DEFAULT_BASE = (
+    "https://txgwdepbtdvfnubmtewb.supabase.co/functions/v1/atacadao-in-store-offers"
+)
+BASE = os.environ.get("ATACADAO_APP_BASE_URL", DEFAULT_BASE).rstrip("/")
 BACKOFFICE = "/mobile/ofertas-backoffice/v1"
 TRANSACTIONAL = "/mobile/ofertas-transacional/v1"
 
-TOKEN_PATH = "/infosec/auth/v1/protocol/openid-connect/token"
 def _require_env(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
@@ -35,10 +48,7 @@ def _require_env(name: str) -> str:
     return value
 
 
-CLIENT_ID = _require_env("ATACADAO_APP_CLIENT_ID")
-CLIENT_SECRET = _require_env("ATACADAO_APP_CLIENT_SECRET")
-USERNAME = _require_env("ATACADAO_APP_USERNAME")
-PASSWORD = _require_env("ATACADAO_APP_PASSWORD")
+API_KEY = _require_env("ATACADAO_APP_API_KEY")
 UA = "Dart/3.10 (dart:io)"
 
 
@@ -66,42 +76,22 @@ def _request(
 
 
 class MeuAtacadaoAppApi:
-    def __init__(self, base: str = BASE):
+    def __init__(self, base: str = BASE, api_key: str = API_KEY):
         self.base = base.rstrip("/")
-        self.token: str | None = None
+        self.api_key = api_key
 
     # ---------------------------------------------------------------- auth
     def authenticate(self) -> str:
-        form = urllib.parse.urlencode(
-            {
-                "grant_type": "password",
-                "username": USERNAME,
-                "password": PASSWORD,
-                "client_id": CLIENT_ID,
-                "client_secret": CLIENT_SECRET,
-            }
-        ).encode()
-        status, text = _request(
-            self.base + TOKEN_PATH,
-            data=form,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
-        if status != 200:
-            raise AppApiError(status, text)
-        payload = json.loads(text)
-        self.token = payload["access_token"]
-        return self.token
+        """Kept for compatibility: the edge function does the auth, we only ping it."""
+        self.offer_status(632)
+        return self.api_key
 
     def _get(self, path: str, params: dict | None = None) -> str:
-        if not self.token:
-            self.authenticate()
         url = self.base + path
         if params:
             url += "?" + urllib.parse.urlencode(params, doseq=True)
-        status, text = _request(url, headers={"Authorization": f"Bearer {self.token}"})
-        if status == 401:
-            self.authenticate()
-            status, text = _request(url, headers={"Authorization": f"Bearer {self.token}"})
+        headers = {"x-api-key": self.api_key, "apikey": self.api_key}
+        status, text = _request(url, headers=headers)
         if status != 200:
             raise AppApiError(status, text)
         return text
@@ -172,6 +162,5 @@ class MeuAtacadaoAppApi:
 
 if __name__ == "__main__":
     api = MeuAtacadaoAppApi()
-    token = api.authenticate()
-    print(f"token ok ({len(token)} chars)")
+    print("edge function:", api.base)
     print("offer status:", api.offer_status(632))

@@ -15,15 +15,22 @@
 
 | Item | Valor |
 |---|---|
-| App | `br.com.atacadao.b2c.app` â€” "Meu AtacadÃ£o" v13.429.1 (`versionCode 875917`) |
+| App | `br.com.atacadao.b2c.app` — "Meu Atacadão" **v13.429.2** (`versionCode 876000`) |
 | Runtime | Flutter / Dart, **arm64-v8a apenas** |
-| API de ofertas da loja fÃ­sica | `https://freyr.portal.atacadao.com.br` |
-| AutenticaÃ§Ã£o | Keycloak (realm `R-Mobile_Backend_Token-KC`) via Apigee, em `skadi-prod` |
-| Grant | `password` (client "externo" de serviÃ§o, sem MFA, sem vÃ­nculo de device) |
-| Validade do token | 3.600 s (`expires_in`), refresh 1.800 s |
-| Cobertura | 389 lojas; o `idFilial` **Ã©** o nÃºmero da loja fÃ­sica (ex.: 632 = HortolÃ¢ndia) |
+| API de ofertas da loja física | proxy: `https://txgwdepbtdvfnubmtewb.supabase.co/functions/v1/atacadao-in-store-offers` (origem real: `https://freyr.portal.atacadao.com.br`) |
+| Autenticação (até 13.429.1) | Keycloak (realm `R-Mobile_Backend_Token-KC`) via Apigee, em `skadi-prod` |
+| Autenticação (**agora**) | **server-side**: edge function da Supabase guarda a conta de serviço e repassa a chamada; o app só manda `x-api-key` |
+| Cobertura | 389 lojas; o `idFilial` **é** o número da loja física (ex.: 632 = Hortolândia) |
 
-Credenciais (ver seÃ§Ã£o 9 para o que fazer quando mudarem):
+Configuração usada pelo coletor (ver §14 para o histórico da rotação de Nov/2026):
+
+```
+ATACADAO_APP_BASE_URL = https://txgwdepbtdvfnubmtewb.supabase.co/functions/v1/atacadao-in-store-offers
+ATACADAO_APP_API_KEY  = <REDACTED - see .env.production>   (header x-api-key)
+```
+
+Valores legados (não funcionam mais — a conta `kcc-ofertas-externo` foi
+desativada no Keycloak em 31/10/2026):
 
 ```
 client_id     = OfertaMobile-TokenAuth
@@ -31,7 +38,6 @@ client_secret = <REDACTED - see .env.production>
 username      = kcc-ofertas-externo
 password      = <REDACTED - see .env.production>
 scope         = R-OfertasMobile-externo
-aud           = R-OfertasMobile-KC
 ```
 
 Cliente pronto para uso: `scripts/atacadao_app_api.py` (sÃ³ `urllib`, sem dependÃªncias).
@@ -47,9 +53,11 @@ usar em qualquer app novo.
 |---|---|
 | `scan_app_bundle.py` | varre bundle de app hÃ­brido/Capacitor: hosts, rotas (inclui template literals) e chaves de config |
 | `grep_bundle.py` | grep com contexto em bundle minificado (lÃª o bloco de configuraÃ§Ã£o do tenant) |
+| `dart_strings.py` | dump/grep de strings do `libapp.so` (Dart AOT) com contexto — acha chaves de config, URLs e docstrings |
+| `fetch_remote_config.py` | baixa o Remote Config de qualquer versÃ£o (`--version`) e imprime as chaves que casarem com `--match` |
 | `probe_app_api_shape.py` | descobre limites de paginaÃ§Ã£o e o shape do catÃ¡logo por loja |
 | `probe_departments.py` | prova de completude: departamentos devem somar o total geral |
-| `probe_token_ttl.py` | TTL/refresh/claims da credencial de app (AtacadÃ£o) |
+| `probe_app_api_health.py` | chave + rotas da edge function do AtacadÃ£o (substitui o `probe_token_ttl.py`) |
 | `list_app_stores.py` | registra as lojas da rede via API do app (AtacadÃ£o) |
 | `validate_app_price.py` | consulta um produto especÃ­fico e mostra as trÃªs faixas de preÃ§o |
 | `dump_store_offers.py` | pÃ¡gina as vitrines/ofertas de uma loja |
@@ -496,69 +504,76 @@ A variante de 700g (EAN 7891515644437) aparece a R$ 20,50 em 9 das 10 lojas e a
 
 ```powershell
 $env:PYTHONIOENCODING="utf-8"
-$py = "C:\Android\mitm-venv\Scripts\python.exe"
+$py = ".\.venv\Scripts\python.exe"          # o venv de RE também serve
+$env:ATACADAO_APP_API_KEY = "<chave do .env.production>"
 
-& $py scripts\probe_token_ttl.py            # TTL, refresh, claims
-& $py scripts\list_app_stores.py --region   # 43 lojas da RMC -> app_stores.json
-& $py scripts\probe_app_api_shape.py 632    # limites de pageSize / varredura completa
-& $py scripts\probe_departments.py 632      # departamentos x catÃ¡logo (deve fechar em 0)
-& $py scripts\validate_app_price.py 632     # preÃ§o do produto do usuÃ¡rio na loja 632
-& $py scripts\dump_store_offers.py 632      # vitrines (aplica sÃ³ com oferta ativa)
+& $py scripts\probe_app_api_health.py        # chave + rotas (oferta, categorias, busca, lojas)
+& $py scripts\probe_app_api_health.py 662    # mesma checagem em outra filial
+& $py scripts\list_app_stores.py --region    # 43 lojas da RMC -> app_stores.json
+& $py scripts\probe_app_api_shape.py 632     # limites de pageSize / varredura completa
+& $py scripts\probe_departments.py 632       # departamentos x catálogo (deve fechar em 0)
+& $py scripts\validate_app_price.py 632      # preço do produto do usuário na loja 632
+& $py scripts\dump_store_offers.py 632       # vitrines (aplica só com oferta ativa)
 ```
 
-Se `probe_departments.py` fechar em 0 e `validate_app_price.py` mostrar os trÃªs preÃ§os, **a
-credencial estÃ¡ boa**.
+Se `probe_app_api_health.py` sair com `OK`, `probe_departments.py` fechar em 0 e
+`validate_app_price.py` mostrar os três preços, **a credencial está boa**.
+
+Até Nov/2026 a checagem era `probe_token_ttl.py` (TTL/claims do Keycloak). Esse script foi
+removido: não existe mais token no cliente — quem troca credencial com o Keycloak é a edge
+function.
 
 ---
 
 ## 9. Playbook: as credenciais mudaram. E agora?
 
-### 9.1 DiagnÃ³stico pelo cÃ³digo de erro
+### 9.1 Diagnóstico pelo código de erro
 
-| Sintoma | Causa provÃ¡vel | AÃ§Ã£o |
+| Sintoma | Causa provável | Ação |
 |---|---|---|
-| `401 {"error":"invalid_client"}` | `client_secret` ou `client_id` trocados/desabilitados | Recapturar (9.2) |
-| `410/401 {"error":"invalid_grant"}` | senha do usuÃ¡rio `kcc-ofertas-externo` alterada | Recapturar (9.2); talvez seja um usuÃ¡rio novo |
-| `401 unauthorized_client` em `grant_type=client_credentials` | **normal** â€” esse client nÃ£o tem service account | Use `password` |
-| `403` com HTML/JSON do Apigee | rota bloqueada/regra mudou | Revalidar as rotas (7.1); pode ter subido versÃ£o nova da API |
-| `404` em rota que funcionava | versÃ£o da API mudou (`v1` â†’ `v2`) | Ver 9.3 |
-| Todos os preÃ§os `null` | token vÃ¡lido, loja sem ofertas ou `idFilial` errado | `probe_departments.py` |
+| `400 {"error":"invalid_grant","error_description":"Account disabled"}` | a conta de serviço do Keycloak foi desativada (foi o que aconteceu em 31/10/2026) | Não é mais recuperável pelo app: a auth virou server-side → §14 |
+| `401 {"error":"Missing API key."}` | faltou/errou o header `x-api-key` da edge function | Conferir `ATACADAO_APP_API_KEY` |
+| `429 {"error":"Too many requests. Please try again later."}` | rate limit da edge function | Baixar concorrência (`MAX_CONCURRENCY`) e repetir com backoff |
+| `404 {"error":"Route not found."}` | rota inexistente **na edge function** (o path do freyr vem depois do nome da função) | Ver 14.3 |
+| `401 {"error":"invalid_client"}` (legado) | `client_secret`/`client_id` rotacionados | Só se voltarem ao fluxo direto; ver 9.2 |
+| `403` com HTML/JSON do Apigee | rota bloqueada/regra mudou | Revalidar as rotas (7.1) |
+| Todos os preços `null` | loja sem ofertas ou `idFilial` errado | `probe_departments.py` |
 
-### 9.2 Recaptura rÃ¡pida (o caminho curto)
+### 9.2 Recaptura (fluxo legado, ≤13.429.1)
 
-Tudo o que Ã© preciso jÃ¡ estÃ¡ instalado e o APK patcheado jÃ¡ estÃ¡ no BlueStacks. Passos:
+Só vale se a api voltar a usar Keycloak direto. O APK patcheado já está no BlueStacks:
 
-1. Suba o mitmproxy e o proxy reverso (seÃ§Ã£o 4.2a) e confirme o proxy global do guest.
-2. Abra o app "Meu AtacadÃ£o" â†’ tela de ofertas da loja (o app refaz o login do Keycloak na
+1. Suba o mitmproxy e o proxy reverso (seção 4.2a) e confirme o proxy global do guest.
+2. Abra o app "Meu Atacadão" → tela de ofertas da loja (o app refaz o login do Keycloak na
    primeira chamada autenticada).
-3. `scripts/show_capture.py` â†’ pegue `client_id`, `client_secret`, `username`, `password`.
-4. Atualize as variÃ¡veis de ambiente/segredos do projeto (nÃ£o edite constante no cÃ³digo â€” veja
-   abaixo) e rode `probe_token_ttl.py`.
-5. Rode `probe_departments.py 632` para reconfirmar o contrato.
+3. `scripts/show_capture.py` → pegue `client_id`, `client_secret`, `username`, `password`.
+4. Atualize as variáveis de ambiente e rode `probe_app_api_health.py`.
 
-### 9.3 Se o app subir de versÃ£o
+### 9.3 Se o app subir de versão
 
 1. Baixe o novo XAPK e confira `versionCode`/ABIs (`aapt2 dump badging`).
-2. Repita a Fase 4. Os alvos dos patches (smali de root detection, `X-Android-Cert`, splash)
-   podem mudar de arquivo â€” os scripts localizam por **padrÃ£o de string**, nÃ£o por nome de arquivo,
-   justamente para sobreviver a isso.
-3. Rode o app por alguns minutos com a captura ligada e faÃ§a `diff` das rotas observadas contra a
-   tabela 7.1. Rota nova = atualizar `scripts/atacadao_app_api.py` e o coletor.
+2. Compare o snapshot Dart com o da versão anterior (§14.2 mostra o método): se
+   `/infosec/auth/v1/protocol/openid-connect/token` ou `client_secret` sumirem/voltarem, o
+   transporte mudou de novo.
+3. Repita a Fase 4. Os alvos dos patches (smali de root detection, `X-Android-Cert`, splash)
+   podem mudar de arquivo — os scripts localizam por **padrão de string**, não por nome de arquivo.
+4. Faça o fetch do Remote Config da nova versão (`scripts/fetch_remote_config.py --version X`) e
+   compare com a versão anterior; uma chave nova do tipo `*_proxy_function` indica mudança de
+   transporte.
+5. Rode o app por alguns minutos com a captura ligada e faça `diff` das rotas observadas contra a
+   tabela 7.1.
 
-### 9.4 Onde NÃƒO colocar credencial
+### 9.4 Onde NÃO colocar credencial
 
-Nada de `client_secret` hardcoded em mÃ³dulo de produÃ§Ã£o. O coletor lÃª de ambiente:
+Nada de chave hardcoded em módulo de produção. O coletor lê de ambiente:
 
 ```
-ATACADAO_APP_BASE_URL      (default https://freyr.portal.atacadao.com.br)
-ATACADAO_APP_CLIENT_ID
-ATACADAO_APP_CLIENT_SECRET
-ATACADAO_APP_USERNAME
-ATACADAO_APP_PASSWORD
+ATACADAO_APP_BASE_URL   (default: a edge function de produção)
+ATACADAO_APP_API_KEY    (header x-api-key; sem default)
 ```
 
-Os `scripts/` de RE mantÃªm os valores observados como default, o que Ã© aceitÃ¡vel porque sÃ£o
-ferramentas de investigaÃ§Ã£o â€” mas rotacione e migre para `.env`/secret manager antes de qualquer
+Os `scripts/` de RE mantêm os valores observados como default, o que é aceitável porque são
+ferramentas de investigação — mas rotacione e migre para `.env`/secret manager antes de qualquer
 deploy.
 
 ---
@@ -1013,6 +1028,127 @@ E a prova em escala de que o preço é da rede — três filiais coletadas de ve
 * **Não** trocar `api.tendaatacado.com.br` por um proxy sem necessidade: a WAF (Azion) bloqueia o
   IP da Oracle, não o do dev — `scripts/verify_tenda_app.py --direct` ignora o `TENDA_PROXY_URL`
   local, e a constante do coletor continua honrando o proxy em produção.
+
+---
+
+## 14. Caso 4 — rotação de credenciais do Atacadão (31/10/2026): a auth saiu do app
+
+### 14.1 Sintoma
+
+```
+app.catalog.atacadao.AtacadaoAppError: HTTP 400:
+{"error":"invalid_grant","error_description":"Account disabled"}
+```
+
+### 14.2 Diagnóstico em 4 probes (5 minutos, sem emulador)
+
+Rodando direto contra
+`https://freyr.portal.atacadao.com.br/infosec/auth/v1/protocol/openid-connect/token`:
+
+| Probe | Resposta | Leitura |
+|---|---|---|
+| `password` com as credenciais boas | `400 invalid_grant` / **Account disabled** | client autenticou e o usuário foi encontrado |
+| `password` com **senha errada** | `400 invalid_grant` / Account disabled | a senha nem chega a ser avaliada → é a mesma conta desativada, não senha trocada |
+| `client_credentials` | `401 unauthorized_client` | o client nunca teve service account |
+| `password` **sem** `client_secret` | `401 unauthorized_client` | o `client_secret` antigo **ainda é válido** |
+
+**Conclusão:** `client_id` e `client_secret` intactos; quem morreu foi o **usuário**
+`kcc-ofertas-externo` (desativado no Keycloak). Como o app 13.429.1 usa a mesma conta, ele estaria
+quebrado do mesmo jeito — sinal de que a Carrefour mudou o transporte na 13.429.2.
+
+### 14.3 Diff estático do snapshot Dart (o método que resolveu)
+
+```powershell
+# 1. extrair lib/arm64-v8a/libapp.so de split_0.apk das duas versões
+# 2. dump de strings + grep com contexto
+python scripts\dart_strings.py dump "C:\Android\apk\Atacadao\x134292\lib\libapp.so" --out strings_134292.txt
+python scripts\dart_strings.py grep strings_134292.txt "infosec" "client_credentials" "secure_proxy" "kobe_middleware"
+```
+
+Resultado do diff:
+
+| Marcador em `libapp.so` | 13.429.1 | 13.429.2 |
+|---|---|---|
+| `/infosec/auth/v1/protocol/openid-connect/token` | presente | **ausente** |
+| `client_credentials` | presente | **ausente** |
+| `client_secret` = `CI4hKA5…` (literal) | presente | **ausente** |
+| senha `WUzN!r2Jrr!…` (literal) | presente | **ausente** |
+| `in_store_offers_secure_proxy_function` | ausente | **presente** |
+| `in_store_offers_backoffice_client_secret` / `_password` | presentes | **ausentes** |
+
+Ou seja: **o binário não guarda mais segredo nenhum** — procurar credencial nova no APK seria perda
+de tempo. O que ele guarda é o *nome* do componente que passou a guardar a credencial. E a docstring
+do parâmetro (os textos em português ficam em claro no snapshot, ao lado das chaves) entrega o
+contrato inteiro:
+
+> "Nome da Edge Function (em `kobe_middleware_base_url`) que guarda no servidor as credenciais da
+> API de ofertas. Vazio = o app chama a API direto"
+
+Com isso:
+
+1. `scripts/dart_strings.py` + regex `^[a-z0-9]+(-[a-z0-9]+)+$` lista os identificadores em
+   kebab-case → **`atacadao-in-store-offers`** e `atacadao-in-store-offers-hml`.
+2. `scripts/fetch_remote_config.py --version 13.429.2` traz as duas chaves do middleware:
+   `kobe_middleware_base_url = https://txgwdepbtdvfnubmtewb.supabase.co/functions/v1` e
+   `kobe_middleware_api_key = <uuid>` (409 entradas no RC, 10 a mais que na 13.429.1; nenhuma delas
+   traz segredo do Keycloak).
+
+> **Lição:** o Remote Config continua sem segredo. O que mudou é que **não existe mais segredo no
+> cliente**: a conta de serviço foi para o servidor da Carrefour (Supabase Edge Function). Quando o
+> APK "perde" as credenciais, o próximo lugar a olhar é uma chave de config do tipo
+> `*_proxy_function` / `*_edge_function`, não o tráfego.
+
+### 14.4 Contrato da edge function (validado em 01/11/2026)
+
+```
+BASE = https://txgwdepbtdvfnubmtewb.supabase.co/functions/v1/atacadao-in-store-offers
+GET  {BASE}/mobile/ofertas-backoffice/v1/...   +   header  x-api-key: <ATACADAO_APP_API_KEY>
+```
+
+O path do freyr entra **depois** do nome da função, com os mesmos parâmetros de antes
+(`filialId`, `idFilial`, `pageNumber`, `pageSize`, `cityOrName`, …). Nada de `Authorization: Bearer`.
+
+| Erro | Significado |
+|---|---|
+| `401 {"error":"Missing API key."}` | header ausente |
+| `404 {"error":"Route not found."}` | path errado (nome da função + path do freyr) |
+| `429 {"error":"Too many requests. Please try again later."}` | rate limit do proxy |
+
+Rotas reconfirmadas (todas 200): `offer/status`, `home/categorias`, `home/banners`,
+`produto/busca`, `vitrine/mobile/v2`, `busca-loja-via-cidade-nome/v2`.
+
+### 14.5 O que a captura de tráfego mostrou (e por que não serviu)
+
+O APK 13.429.2 foi patcheado e instalado no BlueStacks normalmente — os 4 patches ainda batem:
+`processJailBroken`/`processCheckIssues`, 3 × `X-Android-Cert` (`E9/o`, `m9/c`,
+`ConfigFetchHttpClient`), CA em `res/raw` e splash. Com proxy global + mitmproxy + reescrita do RC,
+o mitmdump só viu tráfego **nativo** (Firebase/Facebook/Crashlytics) e o proxy reverso em `:9999`
+não recebeu **nenhuma** requisição.
+
+O motivo é estrutural, e dá para provar offline: a chave que decide o transporte
+(`in_store_offers_secure_proxy_function`) **não existe no Remote Config** (o app usa o default do
+código), então não há valor para reescrever — a chamada sai direto para a edge function. Somado a
+isso, o `dart:io` continua ignorando o proxy do sistema. Sem root (iptables/WireGuard) não há como
+interceptar o Dart, e como o binário não tem mais segredo, também não haveria o que capturar.
+**A análise estática do snapshot foi o caminho certo.**
+
+> Ajuste decorrente: `scripts/mitm_rewrite_rc.py` passou a reescrever **só** as chaves de transporte
+> (`*api_url`, `*keycloak_login_url`, `*proxy_function`, `*edge_function`, `*gateway`) — antes ele
+> trocava qualquer URL `in_store_offers_*`, o que quebrava links de compartilhamento de folheto e
+> redirects de login VTEX.
+
+### 14.6 Mudanças no código
+
+- `app/catalog/atacadao.py`: sem Keycloak. `x-api-key` em todas as chamadas, retry com backoff para
+  `429`/`5xx` (respeitando `Retry-After`) e `MAX_CONCURRENCY=4` por causa do rate limit do proxy.
+- `scripts/atacadao_app_api.py`: cliente de referência atualizado (mesmo contrato).
+- `scripts/probe_token_ttl.py` → **removido**; entrou `scripts/probe_app_api_health.py`.
+- `scripts/dart_strings.py`: novo utilitário (dump/grep de strings do `libapp.so`) — foi ele que
+  achou a chave e a docstring.
+- Env: `ATACADAO_APP_CLIENT_ID/SECRET/USERNAME/PASSWORD` → `ATACADAO_APP_API_KEY` (e
+  `ATACADAO_APP_BASE_URL` agora aponta para a edge function).
+- Validação: loja 632 → **8.925 SKUs, 0 erros, ~10 s** (antes: ~2 min 20 s com o token do Keycloak).
+
 
 
 
