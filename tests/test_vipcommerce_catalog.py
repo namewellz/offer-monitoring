@@ -108,6 +108,58 @@ def test_parse_vipc_unknown_section_falls_back_to_department() -> None:
     assert product.categories == ["Bebidas"]
 
 
+def test_parse_vipc_fraction_of_unit_price_is_normalized_to_the_unit() -> None:
+    """Costela Minga: R$ 17,44 em 0,5 KG é R$ 34,88/kg (o site mostra os dois)."""
+    raw = _product(14675, preco="17.44")
+    raw.update(
+        {
+            "descricao": "Carne Bovina Costela Minga Pul Kg",
+            "unidade_sigla": "KG",
+            "possui_unidade_diferente": True,
+            "quantidade_unidade_diferente": 0.5,
+            "preco_original": 34.88,
+        }
+    )
+    product = _client()._parse(
+        raw, department_id=75, department_name="Carnes",
+        sections={75: (75, "Carne bovina")},
+    )
+    assert product.measure == "KG"
+    assert product.sales_price == 34.88  # 17.44 / 0.5
+    assert product.regular_price == 34.88
+
+
+def test_parse_vipc_fraction_with_promo_keeps_discount() -> None:
+    raw = _product(7, preco="17.44")
+    raw.update(
+        {
+            "unidade_sigla": "KG",
+            "possui_unidade_diferente": True,
+            "quantidade_unidade_diferente": 0.5,
+            "preco_original": 39.9,
+            "em_oferta": True,
+            "oferta": {"preco_antigo": "39.90", "preco_oferta": "17.44", "tag": "oferta"},
+        }
+    )
+    product = _client()._parse(
+        raw, department_id=75, department_name="Carnes",
+        sections={75: (75, "Carne bovina")},
+    )
+    assert product.sales_price == 34.88
+    assert product.regular_price == 39.9  # `preco_original` já vem por kg
+
+
+def test_parse_vipc_without_fraction_keeps_the_price() -> None:
+    raw = _product(8, preco="12.99")
+    raw["possui_unidade_diferente"] = False
+    raw["quantidade_unidade_diferente"] = 0.5
+    product = _client()._parse(
+        raw, department_id=1, department_name="Bebidas",
+        sections={87: (1, "Cereais")},
+    )
+    assert product.sales_price == 12.99
+
+
 async def test_vipc_collect_paginates_and_merges() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST" and request.url.path.endswith("/auth/loja/login"):

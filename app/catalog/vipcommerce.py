@@ -326,12 +326,36 @@ class VipCommerceCatalogClient:
         product_id = int(raw.get("produto_id") or raw.get("id") or 0)
         offer = raw.get("oferta") or {}
         em_oferta = bool(raw.get("em_oferta")) and bool(offer)
-        base = _number(raw.get("preco"))
+
+        # VIPCommerce vende "fração da unidade": a Costela Minga custa R$ 17,44
+        # em 0,5 KG (`quantidade_unidade_diferente: 0.5`, `unidade_sigla: KG`),
+        # ou seja R$ 34,88/kg. Sem dividir pela fração o preço por kg sai pela
+        # metade — o site mostra os dois valores lado a lado.
+        fraction = _number(raw.get("quantidade_unidade_diferente"))
+        if not raw.get("possui_unidade_diferente") or not fraction or fraction <= 0:
+            fraction = None
+
+        def per_unit(value: Any) -> float | None:
+            number = _number(value)
+            if number is None or fraction is None:
+                return number
+            return number / fraction
+
+        base = per_unit(raw.get("preco"))
+        # `preco_original` já vem na unidade cheia (34.88 quando o preço da
+        # fração é 17.44): não dividir de novo.
+        original = _number(raw.get("preco_original"))
         if em_oferta:
-            sales_price = _number(offer.get("preco_oferta")) or base
-            regular_price = _number(offer.get("preco_antigo")) or base
+            sales_price = per_unit(offer.get("preco_oferta")) or base
+            regular_price = (
+                original
+                if fraction and original
+                else per_unit(offer.get("preco_antigo"))
+            ) or base
         else:
             regular_price = base
+            if fraction and original and base and original > base:
+                regular_price = original
             sales_price = base
 
         categories = [department_name]
