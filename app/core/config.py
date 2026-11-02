@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     legacy_catalog_write_enabled: bool = False
     # Canonical normalizer (docs/canonical): nothing in the app reads it unless this is on.
     canonical_enabled: bool = False
+    # Preço que a fonte parou de confirmar não é preço: some da tela depois de N dias.
+    price_expiry_days: int = 7
+    price_expiry_cron: str = "30 5 * * *"
     davita_api_token: str | None = None
     davita_token_file: Path = Path("/run/secrets/davita_dotenv")
     assai_username: str | None = None

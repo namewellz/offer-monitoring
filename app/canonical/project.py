@@ -99,6 +99,7 @@ SELECT sl.identity_key,
   FROM store_listings sl
  WHERE sl.active
    AND sl.identity_key IS NOT NULL
+   AND sl.effective_price_cents IS NOT NULL
    AND (sl.store_region_bucket IS NULL OR sl.store_region_bucket <> 'fora')
  GROUP BY sl.identity_key
 """

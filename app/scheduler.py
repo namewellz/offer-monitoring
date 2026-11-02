@@ -57,6 +57,20 @@ def schedule_catalog_collections() -> None:
     enqueue_catalogs()
 
 
+def expire_stale_prices_job() -> None:
+    """Preço que a fonte parou de confirmar sai da tela.
+
+    Roda antes da primeira coleta do dia (default 05:30). Sem isso, alvo que
+    deixou de rodar mantinha o preço congelado para sempre — 59 mil listings
+    com preço de mais de 7 dias, em todas as redes.
+    """
+    from app.catalog.v2.rebuild import expire_stale_prices
+
+    settings = get_settings()
+    with SessionLocal() as db:
+        expire_stale_prices(db, days=settings.price_expiry_days)
+
+
 def enqueue_sources_without_collection() -> None:
     """Nova fonte já inicia a coleta (não espera o cron).
 
@@ -130,4 +144,13 @@ if __name__ == "__main__":
         )
         # fontes recém-adicionadas coletam já no boot (não esperam o cron)
         enqueue_sources_without_collection()
+        add_cron_job(
+            scheduler,
+            expire_stale_prices_job,
+            settings.price_expiry_cron,
+            id="price-expiry",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+        )
     scheduler.start()

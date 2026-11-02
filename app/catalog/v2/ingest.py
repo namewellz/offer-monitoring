@@ -20,7 +20,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.catalog.taxonomy import canonical_department
@@ -471,6 +471,41 @@ def _sync_listing_snapshot(
         listing.change_percent = None
 
 
+def _should_price(listing: StoreListing) -> bool:
+    """Preço só entra quando o item é comprável.
+
+    Item marcado como ``OUT_OF_STOCK`` não tem preço de venda: a API devolve um
+    placeholder (R$ 1,07 num pacote de 500 g) ou o último valor, e aceitar isso
+    cria preço-fantasma que nunca mais é corrigido. Redes que não informam
+    disponibilidade ficam em ``UNKNOWN`` e continuam sendo precificadas.
+    """
+    return (
+        listing.price_status == "KNOWN"
+        and listing.availability != "OUT_OF_STOCK"
+    )
+
+
+def _clear_listing_price(listing: StoreListing) -> None:
+    """Item sem estoque não tem preço de venda: some da tela, histórico intacto.
+
+    A API de algumas redes devolve um valor qualquer (R$ 1,07 para um pacote de
+    500 g) mesmo com ``available=false``. Aceitar esse valor cria preço-fantasma
+    que nunca mais é corrigido, porque a coleta seguinte devolve o mesmo lixo e
+    o período só é "re-confirmado".
+    """
+    listing.regular_price_cents = None
+    listing.effective_price_cents = None
+    listing.best_conditional_cents = None
+    listing.price_basis_unit = None
+    listing.price_terms = []
+    listing.previous_cents = None
+    listing.change_amount_cents = None
+    listing.change_percent = None
+    listing.is_offer = False
+    listing.offer_kind = None
+    listing.unit_price_micros = None
+
+
 def _apply_price_period(
     db: Session,
     run: CollectionRun,
@@ -517,9 +552,16 @@ def _apply_price_period(
     )
 
     if open_period is None:
+        # O item pode voltar depois de meses sem preço: a versão continua de onde
+        # parou, senão o UNIQUE (store_listing_id, version) quebra na primeira volta.
+        last_version = db.scalar(
+            select(func.coalesce(func.max(PricePeriod.version), 0)).where(
+                PricePeriod.store_listing_id == listing.id
+            )
+        )
         period = PricePeriod(
             store_listing_id=listing.id,
-            version=1,
+            version=int(last_version or 0) + 1,
             started_at=observed_at,
             last_confirmed_at=observed_at,
             first_run_id=run.id,
@@ -693,7 +735,7 @@ def ingest_catalog_v2(
         else:
             items_unchanged += 1
 
-        if listing.price_status == "KNOWN":
+        if _should_price(listing):
             items_priced += 1
             period, previous, changed = _apply_price_period(
                 db, run, listing, raw, observed_at
@@ -702,6 +744,8 @@ def ingest_catalog_v2(
                 _sync_listing_snapshot(listing, period, previous, changed)
             if changed:
                 periods_created += 1
+        elif listing.availability == "OUT_OF_STOCK":
+            _clear_listing_price(listing)
 
     finish_run(
         db,

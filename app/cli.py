@@ -34,6 +34,7 @@ from app.catalog.saovicente import SaoVicenteCatalogClient
 from app.catalog.savegnago import SavegnagoCatalogClient
 from app.catalog.v2.backfill import backfill_v2
 from app.catalog.vipcommerce import SpaniCatalogClient
+from app.core.config import get_settings
 from app.db.models import FlyerSource, Retailer, Store
 from app.db.session import SessionLocal
 from app.discovery.service import discover_source
@@ -81,6 +82,9 @@ def main() -> None:
     commands.add_parser("backfill-v2")
     commands.add_parser("backfill-catalog-read-model")
     commands.add_parser("purge-catalog-sentinels")
+    commands.add_parser("purge-unavailable-prices")
+    expire = commands.add_parser("expire-stale-prices")
+    expire.add_argument("--days", type=int, default=get_settings().price_expiry_days)
     commands.add_parser("canonical-backfill")
     extract = commands.add_parser("extract")
     extract.add_argument("--flyer", required=True)
@@ -196,12 +200,35 @@ def main() -> None:
         for key, value in result.items():
             print(f"  {key}: {value}")
         return
+    if args.command == "purge-unavailable-prices":
+        from app.canonical.project import refresh_canonical_products
+        from app.catalog.v2.rebuild import purge_unavailable_prices
+
+        with SessionLocal() as db:
+            result = purge_unavailable_prices(db)
+            result["canonical_products"] = refresh_canonical_products(db)
+        print("Unavailable prices purged:")
+        for key, value in result.items():
+            print(f"  {key}: {value}")
+        return
+    if args.command == "expire-stale-prices":
+        from app.canonical.project import refresh_canonical_products
+        from app.catalog.v2.rebuild import expire_stale_prices
+
+        with SessionLocal() as db:
+            result = expire_stale_prices(db, days=args.days)
+            result["canonical_products"] = refresh_canonical_products(db)
+        print("Stale prices expired:")
+        for key, value in result.items():
+            print(f"  {key}: {value}")
+        return
     if args.command == "canonical-backfill":
         from app.canonical.backfill import run_backfill
         from app.canonical.project import project_all
 
         with SessionLocal() as db:
             result = run_backfill(db)
+            result.pop("items", None)
             result["projected"] = project_all(db)
         print("Canonical backfill:")
         for key, value in result.items():

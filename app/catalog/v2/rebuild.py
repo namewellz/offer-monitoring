@@ -15,7 +15,9 @@ startup.
 
 from __future__ import annotations
 
-from sqlalchemy import delete, or_, select, text, update
+from datetime import UTC, datetime, timedelta
+
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.orm import Session
 
 from app.catalog.taxonomy import canonical_department
@@ -221,6 +223,115 @@ def rebuild_all(db: Session) -> dict[str, int]:
     departments = backfill_departments(db)
     listings = rebuild_listings(db)
     return {**departments, **listings}
+
+
+_CLEARED_PRICE_VALUES = {
+    "regular_price_cents": None,
+    "effective_price_cents": None,
+    "best_conditional_cents": None,
+    "price_basis_unit": None,
+    "price_terms": [],
+    "previous_cents": None,
+    "change_amount_cents": None,
+    "change_percent": None,
+    "is_offer": False,
+    "offer_kind": None,
+    "unit_price_micros": None,
+}
+
+
+def _clear_prices(db: Session, ids: list, *, batch_size: int = 2000) -> tuple[int, int]:
+    """Fecha o período aberto e zera o preço do read model, em lotes. Idempotente."""
+    closed = 0
+    cleared = 0
+    for start in range(0, len(ids), batch_size):
+        chunk = [int(value) for value in ids[start : start + batch_size]]
+        closed += db.execute(
+            update(PricePeriod)
+            .where(
+                PricePeriod.store_listing_id.in_(chunk),
+                PricePeriod.ended_at.is_(None),
+            )
+            .values(ended_at=func.coalesce(PricePeriod.last_confirmed_at, func.now()))
+        ).rowcount or 0
+        cleared += db.execute(
+            update(StoreListing)
+            .where(StoreListing.id.in_(chunk))
+            .values(**_CLEARED_PRICE_VALUES)
+        ).rowcount or 0
+        db.commit()
+    return closed, cleared
+
+
+def purge_unavailable_prices(db: Session, *, batch_size: int = 2000) -> dict[str, int]:
+    """Tira o preço dos itens que estão sem estoque.
+
+    Quando a rede marca o item como indisponível, a API do catálogo costuma
+    devolver um valor qualquer (ou o último valor). Esse valor entrou como
+    período de preço e nunca mais foi corrigido, porque cada coleta devolvia o
+    mesmo placeholder e só "re-confirmava" o período — daí um pacote de 500 g
+    aparecer por R$ 1,07 por dois meses.
+
+    Aqui:
+
+    1. fecha o período aberto dos listings ativos em ``OUT_OF_STOCK`` (o
+       histórico continua lá, com ``ended_at`` no último dia confirmado);
+    2. limpa o preço do read model, então o item sai das telas de preço;
+    3. item que voltar ao estoque abre um período novo (versão seguinte) com o
+       preço real.
+
+    Idempotente: depois da primeira execução não sobra listing sem estoque com
+    preço no read model.
+    """
+    ids = db.execute(
+        select(StoreListing.id).where(
+            StoreListing.active,
+            StoreListing.availability == "OUT_OF_STOCK",
+            StoreListing.effective_price_cents.is_not(None),
+        )
+    ).scalars().all()
+
+    closed, cleared = _clear_prices(db, ids, batch_size=batch_size)
+    return {
+        "listings_without_stock": len(ids),
+        "periods_closed": closed,
+        "listings_cleared": cleared,
+    }
+
+
+def expire_stale_prices(
+    db: Session, *, days: int = 7, batch_size: int = 2000
+) -> dict[str, int]:
+    """Tira o preço que a fonte parou de confirmar.
+
+    Preço só vale enquanto a coleta o confirma. Alvo que deixou de rodar (ou item
+    que a rede não devolve mais) mantinha o preço congelado para sempre: havia
+    59 mil listings com preço de mais de 7 dias, 22 mil de mais de 30 dias, em
+    todas as 12 redes. Caso clássico: o alvo "Savegnago - Online" nunca coletou
+    e seus 12 mil preços de 24/08 continuavam válidos na tela.
+
+    Mesma mecânica de ``purge_unavailable_prices``: fecha o período aberto no
+    último dia confirmado e limpa o preço do read model. Histórico preservado.
+    """
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    ids = db.execute(
+        select(StoreListing.id).where(
+            StoreListing.active,
+            StoreListing.effective_price_cents.is_not(None),
+            or_(
+                StoreListing.last_confirmed_at.is_(None),
+                StoreListing.last_confirmed_at < cutoff,
+            ),
+        )
+    ).scalars().all()
+
+    closed, cleared = _clear_prices(db, ids, batch_size=batch_size)
+    return {
+        "days": days,
+        "listings_expired": len(ids),
+        "periods_closed": closed,
+        "listings_cleared": cleared,
+    }
 
 
 def purge_sentinel_periods(db: Session) -> dict[str, int]:
