@@ -267,3 +267,48 @@ Tamanho medido: `catalog_price_observations` = **10,1 GB** (4,9 GB dados +
 **Decisão: A (congelar no Postgres).** O disco ainda não é crítico. Se um dia
 ficar, o caminho é: exportar para parquet como cópia de segurança **e manter** a
 tabela até o disco realmente apertar — nunca deletar sem o export validado.
+
+---
+
+## 10. Notas de implementação (aprendidas no deploy)
+
+### 10.1 Booleano cru no `WHERE` (senão o índice parcial é ignorado)
+
+SQLAlchemy gera `active IS TRUE` para `.is_(True)`. O *predicate proof* do
+Postgres **não** reconhece `IS TRUE` como implicação de `active` ao casar um
+índice parcial `WHERE active`, então o plano cai para *parallel seq scan*:
+1.500 ms por página contra **9 ms** com o índice.
+
+```python
+# certo
+conditions = [StoreListing.active, StoreListing.effective_price_cents.is_not(None)]
+# errado (ignora ix_sl_page_default / ix_sl_offer_discount / ix_sl_change_abs)
+conditions = [StoreListing.active.is_(True), ...]
+```
+
+Regra permanente: **todo índice parcial `WHERE active` deve ser casado por
+`active` puro**, e o benchmark tem que rodar o SQL exato que o ORM gera —
+`WHERE active` e `WHERE active IS TRUE` produzem planos diferentes.
+
+### 10.2 Backfill precisa de keyset + `SKIP LOCKED`
+
+O ingest mantém uma transação por loja (dezenas de milhares de linhas). Um
+backfill com `WHERE department IS NULL LIMIT n` sem paginação (a) varre a tabela
+a cada lote e (b) fica preso atrás do `UPDATE` da coleta. Solução aplicada em
+`app/catalog/v2/rebuild.py`: paginar por `id` (usa a PK) e
+`FOR UPDATE SKIP LOCKED`. O comando é idempotente e retoma de onde parou.
+
+### 10.3 Warmups de tela devem fechar a transação
+
+Os caches (`butcher`, `produce_prices`, `dept_prices`, `review`,
+`shop_catalog`) chamam `current_listings(db, release=True)`: a transação fecha
+logo depois do `SELECT`, em vez de ficar `idle in transaction` durante o
+processamento de 400 mil linhas — foi isso que travou `CREATE INDEX
+CONCURRENTLY` no passado.
+
+### 10.4 Partição por HASH exige `id` na PK
+
+Em tabela particionada a chave de partição precisa estar em **toda** restrição
+única. Como `price_periods` particiona por `store_listing_id`, a PK passou a ser
+`(id, store_listing_id)` e `UNIQUE (store_listing_id, version)` foi preservado.
+Nenhum código usa `db.get(PricePeriod, id)`.
