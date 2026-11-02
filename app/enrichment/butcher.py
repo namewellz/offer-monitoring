@@ -183,9 +183,14 @@ def _compute(
             category = equivalent_cut_category(canonical.get(raw, raw) or raw)
         else:
             category = equivalent_cut_category(parsed.label or parsed.raw_name)
+        # Costela bovina e suína não são o mesmo produto: sem separar, a linha
+        # "Costela" sugere a suína (mais barata) para quem pediu a bovina. Só a
+        # suína ganha sufixo, então "Costela" continua sendo a bovina — inclusive
+        # nos itens de lista já criados.
+        if parsed.species == "suino" and "suin" not in category.casefold():
+            category = f"{category} Suína"
         key = (category, form)
-        row = rows.setdefault(
-            key,
+        row = rows.setdefault(            key,
             {
                 "department": "Açougue",
                 "unit": "kg",
